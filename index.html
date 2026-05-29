@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenArmX 드럼 로봇 시뮬레이터</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ══ 헤더 ══ -->
+<div id="header">
+  <div id="header-title">🥁 OpenArmX 드럼 로봇 시뮬레이터</div>
+  <div id="header-controls">
+    <label>BPM <input id="bpm-inp" type="number" min="40" max="240" value="120" step="1"></label>
+    <label>박자 <select id="meter-sel">
+      <option value="4">4/4</option>
+      <option value="3">3/4</option>
+    </select></label>
+    <label>마디 <input id="bars-inp" type="number" min="1" max="32" value="8" step="1"></label>
+    <button id="apply-btn" onclick="applyPattern()">▶ 적용 &amp; 재생</button>
+    <button class="btn-validate" onclick="validatePattern()">✓ 검증</button>
+    <button class="btn-export" onclick="exportYAML()">📥 YAML 내보내기</button>
+    <label class="audio-label" title="MP3 / WAV / OGG 파일을 로드하면 재생 시 함께 흘러나옵니다">
+      🎵 음악 로드
+      <input type="file" id="audio-file" accept="audio/*" style="display:none" onchange="loadAudioFile(this)">
+    </label>
+    <span id="audio-name">파일 없음</span>
+  </div>
+</div>
+
+<!-- ══ 메인 레이아웃 ══ -->
+<div id="main">
+
+  <!-- 왼쪽: 드럼 키트 설정 -->
+  <div id="drum-panel">
+    <div class="panel-header">
+      🥁 드럼 키트 구성
+      <button class="btn-sm" onclick="addDrum()">+ 추가</button>
+    </div>
+    <div class="panel-hint">
+      Y 양수 = 왼팔 방향 / Y 음수 = 오른팔 방향<br>
+      Z = 높이 (로봇 어깨 ≈ 0.698m)
+    </div>
+
+    <div id="drum-list"></div>
+  </div>
+
+  <!-- 중앙: 3D 뷰포트 -->
+  <div id="viewport">
+
+    <!-- 씬 팔레트 플로팅 버튼 & 팝업 -->
+    <button id="pal-toggle-btn" onclick="togglePalette()" title="씬 팔레트">🎨</button>
+    <div id="pal-popup">
+      <div class="pal-popup-header">씬 팔레트</div>
+
+      <div class="pal-popup-section">
+        <div class="pal-popup-label">배경</div>
+        <div class="pal-popup-row">
+          <div class="pal-presets">
+            <button class="preset-dot" style="background:#06060c" title="심우주"    onclick="setSceneBg('#06060c');syncBgPicker('#06060c')"></button>
+            <button class="preset-dot" style="background:#040d1a" title="딥 네이비" onclick="setSceneBg('#040d1a');syncBgPicker('#040d1a')"></button>
+            <button class="preset-dot" style="background:#0a0a0a" title="블랙"      onclick="setSceneBg('#0a0a0a');syncBgPicker('#0a0a0a')"></button>
+            <button class="preset-dot" style="background:#1a1228" title="퍼플 다크" onclick="setSceneBg('#1a1228');syncBgPicker('#1a1228')"></button>
+            <button class="preset-dot" style="background:#06100a" title="포레스트"  onclick="setSceneBg('#06100a');syncBgPicker('#06100a')"></button>
+            <button class="preset-dot" style="background:#e8eaf2;border-color:#9999bb" title="화이트룸" onclick="setSceneBg('#e8eaf2');syncBgPicker('#e8eaf2')"></button>
+          </div>
+          <input type="color" id="pal-bg" value="#f0f2f5" title="직접 선택" oninput="setSceneBg(this.value)">
+        </div>
+      </div>
+
+      <div class="pal-popup-section">
+        <div class="pal-popup-label">로봇 스킨 프레셋</div>
+        <div class="pal-presets" id="skin-presets-container"></div>
+      </div>
+
+      <div class="pal-popup-section">
+        <div class="pal-popup-label">개별 컬러</div>
+        <div class="pal-popup-colors">
+          <div class="palette-item"><label>왼팔</label>
+            <input type="color" id="pal-arm-l" value="#3a7ae0" oninput="setArmColor('L',this.value)"></div>
+          <div class="palette-item"><label>오른팔</label>
+            <input type="color" id="pal-arm-r" value="#e04030" oninput="setArmColor('R',this.value)"></div>
+          <div class="palette-item"><label>몸통</label>
+            <input type="color" id="pal-body" value="#4a6080" oninput="setBodyColor(this.value)"></div>
+          <div class="palette-item"><label>손</label>
+            <input type="color" id="pal-hand" value="#7a8898" oninput="setHandColor(this.value)"></div>
+        </div>
+      </div>
+
+      <div class="pal-popup-divider"></div>
+      <button class="pal-reset-btn" onclick="resetDrumKit();togglePalette()" title="드럼 위치를 기본값으로 되돌립니다">
+        ↺ 드럼 위치 초기화
+      </button>
+    </div>
+
+    <div id="hud">
+      <div class="hud-chip">
+        L-TCP: <span id="tcp-l">-</span><br>
+        R-TCP: <span id="tcp-r">-</span>
+      </div>
+      <div class="hud-chip">상태: <span id="status-span" style="color:#6ef">대기 중</span></div>
+    </div>
+    <div id="rec-badge">● REC</div>
+    <div id="playbar">
+      <button class="pb-btn" id="btn-play"  onclick="playAnim()">▶</button>
+      <button class="pb-btn" id="btn-pause" onclick="pauseAnim()">⏸</button>
+      <button class="pb-btn" id="btn-stop"  onclick="stopAnim()">⏹</button>
+      <input type="range" id="scrubber" min="0" max="10" step="0.01" value="0">
+      <span id="time-lbl">0.00 / 0.0 s</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ 하단: 타임라인 (피아노 롤) ══ -->
+<div id="timeline-wrap">
+  <div id="tl-header">
+    <span id="tl-info">4마디 · 120BPM · 4/4박자</span>
+    <div id="tl-controls">
+      <label><input type="checkbox" id="chk-snap" checked> 비트 스냅</label>
+      <label>분해능:
+        <select id="grid-sel">
+          <option value="4">1/4</option>
+          <option value="8" selected>1/8</option>
+          <option value="16">1/16</option>
+          <option value="32">1/32</option>
+        </select>
+      </label>
+      <button class="btn-sm btn-autogen" onclick="autoGeneratePattern()">🎲 자동 생성</button>
+      <button class="btn-sm" onclick="clearTimeline()">🗑 초기화</button>
+    </div>
+  </div>
+  <div id="timeline">
+    <div id="tl-lane-labels"></div>
+    <div id="tl-scroll">
+      <div id="tl-ruler-sec"></div>
+      <div id="tl-ruler"></div>
+      <div id="tl-lanes"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 검증 모달 ══ -->
+<div id="validation-modal" style="display:none">
+  <div id="validation-box">
+    <div class="modal-header">
+      ✓ 검증 결과
+      <button onclick="closeValidation()">✕</button>
+    </div>
+    <div id="validation-content"></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
