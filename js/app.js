@@ -152,11 +152,15 @@ const _IK_LIMITS = {
   R4:[0.05, 1.70], R5:[-2.9, 2.9], R6:[-1.57, 1.57],
 };
 
-function _solveIK(arm, targetUrdf, initAngles, j7) {
+// j4Min: 팔꿈치 최소 굽힘 (심벌류에서 과다 연장 방지)
+function _solveIK(arm, targetUrdf, initAngles, j7, j4Min) {
+  const LIMITS = { ..._IK_LIMITS };
+  if (j4Min !== undefined) LIMITS[`${arm}4`] = [j4Min, 1.70];
+
   const JK  = [1,2,3,4,5,6].map(i => `${arm}${i}`);
   const a   = { [`${arm}7`]: j7 };
   JK.forEach(k => {
-    const [lo, hi] = _IK_LIMITS[k] ?? [-PI, PI];
+    const [lo, hi] = LIMITS[k] ?? [-PI, PI];
     a[k] = clamp(initAngles[k] ?? 0, lo, hi);
   });
 
@@ -182,7 +186,7 @@ function _solveIK(arm, targetUrdf, initAngles, j7) {
     const stepMag = Math.min(0.06, err.length() * 0.30) / gNorm;
 
     for (let i = 0; i < JK.length; i++) {
-      const [lo, hi] = _IK_LIMITS[JK[i]] ?? [-PI, PI];
+      const [lo, hi] = LIMITS[JK[i]] ?? [-PI, PI];
       a[JK[i]] = clamp(a[JK[i]] + grads[i] * stepMag, lo, hi);
     }
   }
@@ -216,7 +220,9 @@ function _analyticGuess(drum, phase) {
   const j4Hold   = clamp((1 - distNorm) * 2.95, 0.20, 1.40);
   const j4Delta  = { raise: +0.20, strike: -0.50, rebound: 0 }[phase] || 0;
   const j4Scale  = { big:1.15, wrist:1.00, full:1.00, none:0 }[style] ?? 1.0;
-  const j4 = clamp(j4Hold + j4Delta * j4Scale, 0.10, 1.65);
+  // 심벌(big·wrist)은 팔꿈치를 더 굽혀 위에서 내려치는 자세 유도
+  const j4CymbalBoost = (style === 'big' || style === 'wrist') ? 0.28 : 0;
+  const j4 = clamp(j4Hold + j4Delta * j4Scale + j4CymbalBoost, 0.10, 1.65);
   const j5 = 0;
   const j6Raw = ({ wrist:{raise:.10,strike:-.08,rebound:.05},
                   big:  {raise:.12,strike:-.12,rebound:.06},
@@ -248,8 +254,14 @@ function computeStrikePose(drum, phase) {
                 ({ big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0);
   const j7    = s === 'L' ? j7Raw : -j7Raw;
 
-  // TCP 목표 위치 (URDF 좌표)
-  const off = { raise:{x:-0.03,z:+0.10}, strike:{x:0,z:0}, rebound:{x:0,z:+0.08} }[phase] || {x:0,z:0};
+  // 심벌(하이햇·라이드·크래시): raise를 더 높게 → 위에서 내려치는 자연스러운 자세
+  const isCymbal = ['crash', 'ride', 'hihat'].includes(drum.type);
+  const offMap = {
+    raise:   { x: isCymbal ? -0.04 : -0.03, z: isCymbal ? +0.17 : +0.10 },
+    strike:  { x: 0,                          z: 0                        },
+    rebound: { x: 0,                          z: isCymbal ? +0.13 : +0.08 },
+  };
+  const off    = offMap[phase] || offMap.strike;
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
 
   // 해석적 초기 추정 → 수치 IK로 정밀화
@@ -257,7 +269,9 @@ function computeStrikePose(drum, phase) {
   const init  = {};
   [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
 
-  const solved = _solveIK(s, target, init, j7);
+  // 심벌: J4 팔꿈치 최소 굽힘(0.28 rad) 강제 — 과다 연장 방지
+  const j4Min  = isCymbal ? 0.28 : undefined;
+  const solved = _solveIK(s, target, init, j7, j4Min);
 
   // 포즈 조립 (해당 팔만 — buildKeyframes에서 L/R 트랙 분리)
   const pose = { ...NEUTRAL };
