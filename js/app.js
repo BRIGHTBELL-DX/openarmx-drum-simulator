@@ -1467,111 +1467,140 @@ window.autoGeneratePattern = function () {
 
   const coin = p => Math.random() < (p ?? 0.5);
 
-  // ── 현재 드럼킷 기반 동적 역할 배정 ──────────────────────────────
-  // 팔이 바뀌거나 드럼이 추가·삭제돼도 현재 구성에 맞게 자동 적응
+  // ── 현재 드럼킷 전체 배열 (팔별) ─────────────────────────────────
   const Ld = drumKit.filter(d => d.arm === 'L' && d.type !== 'kick');
   const Rd = drumKit.filter(d => d.arm === 'R' && d.type !== 'kick');
+  if (!Ld.length && !Rd.length) return;
 
-  // 우선순위 목록으로 ID 찾기
-  const pick = (pool, types) =>
-    pool.find(d => types.includes(d.type))?.id ?? pool[0]?.id;
+  // 순환 인덱스: 마디·박자 조합으로 드럼 골고루 사용
+  const lcyc = (offset) => Ld.length ? Ld[((offset) % Ld.length + Ld.length) % Ld.length].id : null;
+  const rcyc = (offset) => Rd.length ? Rd[((offset) % Rd.length + Rd.length) % Rd.length].id : null;
 
-  // L팔: 리듬 탐 · 세분(하이햇류) · 필 탐 · 악센트
-  const L = {
-    rhythm: pick(Ld, ['tom_m','hihat','tom_h','tom_f','crash','ride']),
-    subdiv: pick(Ld, ['hihat','tom_h','tom_m','ride','crash']),
-    fill1:  pick(Ld, ['tom_h','tom_m','hihat','crash']),
-    accent: pick(Ld, ['crash','hihat','tom_m']),
-  };
-  // fill2: fill1과 다른 두 번째 L팔 드럼
-  const L_fill2 = Ld.find(d => d.id !== L.fill1)?.id ?? L.fill1;
+  // 백비트용 R팔 기본 드럼 (스네어 우선)
+  const Rback = Rd.find(d => d.type === 'snare')?.id ?? Rd[0]?.id;
+  // 서브디비전용 R팔 (라이드 우선)
+  const Rsub  = Rd.find(d => ['ride','hihat'].includes(d.type))?.id
+              ?? Rd.find(d => d.id !== Rback)?.id ?? Rback;
 
-  // R팔: 백비트 · 세분(라이드류) · 필 탐 · 악센트
-  const R = {
-    back:   pick(Rd, ['snare','tom_f','ride','crash']),
-    subdiv: pick(Rd, ['ride','hihat','snare','tom_f']),
-    fill:   pick(Rd, ['tom_f','snare','ride']),
-    accent: pick(Rd, ['crash','ride','snare']),
-  };
-
-  // 백비트 위치 (4/4 → 2·4박, 3/4 → 2박)
   const backOff = bpb >= 4 ? [1, bpb - 1] : [Math.floor(bpb / 2)];
   const isFill  = bar => (bar + 1) % 4 === 0;
 
-  // ── 스타일 5종 (8분음표 이하, 로봇 친화적) ───────────────────────
-
+  // ── 스타일 5종 — Ld·Rd 전체 드럼 순환, 2~4개 다양하게 사용 ────────
   const STYLES = [
     {
-      name: '락 비트',
+      // 마디마다 L팔 드럼을 순차 교체 — 하이햇·탐을 박자마다 다르게
+      name: '탐 로테이션',
       gen(bs, bar) {
-        backOff.forEach(b => safeAdd(R.back, bs + b));
+        backOff.forEach(b => safeAdd(Rback, bs + b));
         for (let b = 0; b < bpb; b++) {
-          safeAdd(L.subdiv, bs + b);
-          if (bar % 2 === 1) safeAdd(L.subdiv, bs + b + 0.5);
+          safeAdd(lcyc(bar * bpb + b), bs + b);       // 매 박자 다른 L드럼
+        }
+        // 짝수 마디: R팔도 1+3박에 다른 드럼 추가 (3드럼 사용)
+        if (bar % 2 === 0 && Rd.length > 1) {
+          [0, 2].filter(b => !backOff.includes(b))
+                .forEach(b => safeAdd(rcyc(bar + b + 1), bs + b));
         }
         if (isFill(bar)) {
-          safeAdd(L.rhythm, bs + bpb - 2);
-          safeAdd(R.fill,   bs + bpb - 1);
+          safeAdd(lcyc(bar + 1), bs + bpb - 1);
+          safeAdd(rcyc(bar + 2), bs + bpb - 1);
         }
       },
     },
 
     {
-      name: 'L 리듬 그루브',
+      // 4마디 주기로 사용 드럼 수 증가: 2 → 3 → 4 → 풀필
+      name: '밀도 누적',
       gen(bs, bar) {
-        backOff.forEach(b => safeAdd(R.back, bs + b));
-        [0, 2].forEach(b => b < bpb && safeAdd(L.rhythm, bs + b));
-        if (coin(0.6)) safeAdd(L.subdiv, bs + 1.5);
-        if (coin(0.6)) safeAdd(L.subdiv, bs + 3.5);
-        if (isFill(bar)) {
-          safeAdd(L.fill1,  bs + bpb - 2);
-          safeAdd(L_fill2,  bs + bpb - 1);
+        const phase = bar % 4;
+        backOff.forEach(b => safeAdd(Rback, bs + b));
+
+        if (phase === 0) {
+          // 2드럼: L 1개 고정
+          for (let b = 0; b < bpb; b++) safeAdd(lcyc(0), bs + b);
+        } else if (phase === 1) {
+          // 3드럼: L 2개 교차
+          for (let b = 0; b < bpb; b++) safeAdd(lcyc(b % 2), bs + b);
+          [0, 2].filter(b => !backOff.includes(b))
+                .forEach(b => safeAdd(rcyc(1), bs + b));
+        } else if (phase === 2) {
+          // 4드럼: L 전체 순환 + R 서브디비전
+          for (let b = 0; b < bpb; b++) safeAdd(lcyc(b), bs + b);
+          if (Rsub !== Rback) {
+            for (let b = 0; b < bpb; b++) safeAdd(Rsub, bs + b);
+          }
+        } else {
+          // 풀 필: 모든 드럼 교차
+          for (let b = 0; b < bpb; b++) {
+            safeAdd(lcyc(b),     bs + b);
+            safeAdd(rcyc(b + 1), bs + b);
+          }
         }
       },
     },
 
     {
-      name: '8비트 그루브',
+      // L·R 각 박자마다 다른 드럼 — 4개 드럼 동시 활용
+      name: '4드럼 교차',
       gen(bs, bar) {
-        backOff.forEach(b => safeAdd(R.back, bs + b));
         for (let b = 0; b < bpb; b++) {
-          safeAdd(L.subdiv, bs + b);
-          safeAdd(L.subdiv, bs + b + 0.5);
+          safeAdd(lcyc(bar + b),     bs + b);          // L: 마디+박자 오프셋
+          safeAdd(rcyc(bar + b + 1), bs + b);          // R: 한 칸 어긋나게
         }
-        if (bar % 2 === 0) safeAdd(L.rhythm, bs);
-        if (isFill(bar)) {
-          safeAdd(R.fill,   bs + bpb - 1);
-          safeAdd(L.accent, bs + bpb - 1);
+        // 8분 추가 (홀수 마디)
+        if (bar % 2 === 1) {
+          [0.5, 1.5, 2.5].forEach(off =>
+            safeAdd(lcyc(bar + Math.floor(off) + 2), bs + off)
+          );
         }
-      },
-    },
-
-    {
-      name: 'L 탐 순환',
-      gen(bs, bar) {
-        backOff.forEach(b => safeAdd(R.back, bs + b));
-        // 4마디 주기로 fill1·fill2 교차
-        const cyc = [[L.fill1,0],[L_fill2,2],[L_fill2,0],[L.fill1,2]];
-        const [drumA, offA] = cyc[(bar*2)%4] ?? [L.fill1,0];
-        const [drumB, offB] = cyc[(bar*2+1)%4] ?? [L_fill2,2];
-        safeAdd(drumA, bs + offA);
-        safeAdd(drumB, bs + offB);
         if (isFill(bar)) {
-          safeAdd(R.fill,   bs + bpb - 1);
-          safeAdd(L.accent, bs);
+          safeAdd(lcyc(bar + bpb),     bs + bpb - 1);
+          safeAdd(rcyc(bar + bpb + 1), bs + bpb - 1);
         }
       },
     },
 
     {
-      name: 'R 세분 그루브',
+      // 2마디마다 L팔 드럼 교체 + 8분 그루브, R 서브디비전 추가
+      name: '8비트 멀티탐',
       gen(bs, bar) {
-        backOff.forEach(b => safeAdd(R.back, bs + b));
-        for (let b = 0; b < bpb; b++) safeAdd(R.subdiv, bs + b);
-        safeAdd(L.rhythm, bs + (bar % 2 === 0 ? 0 : 2));
+        backOff.forEach(b => safeAdd(Rback, bs + b));
+        const li = Math.floor(bar / 2) % Math.max(Ld.length, 1);
+        const li2 = (li + 1) % Math.max(Ld.length, 1);
+        for (let b = 0; b < bpb; b++) {
+          safeAdd(lcyc(li),  bs + b);
+          if (coin(0.55)) safeAdd(lcyc(li2), bs + b + 0.5);
+        }
+        // R 서브디비전도 변화 (Rsub 사용)
+        if (Rsub !== Rback) {
+          [0, 2].filter(b => !backOff.includes(b))
+                .forEach(b => safeAdd(Rsub, bs + b));
+        }
         if (isFill(bar)) {
-          safeAdd(L.rhythm, bs + bpb - 2);
-          safeAdd(R.fill,   bs + bpb - 1);
+          safeAdd(lcyc(li + 2), bs + bpb - 2);
+          safeAdd(rcyc(li + 2), bs + bpb - 1);
+        }
+      },
+    },
+
+    {
+      // 확률 기반 — 박자마다 드럼 랜덤 선택, 3~5드럼 사용
+      name: '랜덤 그루브',
+      gen(bs, bar) {
+        for (let b = 0; b < bpb; b++) {
+          // L팔: 70% 확률로 랜덤 드럼
+          if (coin(0.7)) safeAdd(lcyc(bar * bpb + b + Math.floor(Math.random() * Ld.length)), bs + b);
+          // R팔: 백비트 박자는 항상, 나머지는 60%
+          if (backOff.includes(b)) {
+            safeAdd(Rback, bs + b);
+          } else if (coin(0.6)) {
+            safeAdd(rcyc(bar * bpb + b + 1), bs + b);
+          }
+          // 8분 오프비트 (40%)
+          if (coin(0.4)) safeAdd(lcyc(bar * bpb + b + 3), bs + b + 0.5);
+        }
+        if (isFill(bar)) {
+          safeAdd(lcyc(bar + bpb),     bs + bpb - 2);
+          safeAdd(rcyc(bar + bpb + 2), bs + bpb - 1);
         }
       },
     },
@@ -1583,8 +1612,8 @@ window.autoGeneratePattern = function () {
     style.gen(bar * bpb + 1, bar);
   }
 
-  // 오프닝 악센트
-  safeAdd(L.accent, 1);
+  // 오프닝 악센트 (L팔 첫 드럼)
+  if (Ld.length) safeAdd(Ld[0].id, 1);
 
   renderTimeline();
   _playKFs = buildKeyframes();
