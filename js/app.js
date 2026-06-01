@@ -1485,122 +1485,106 @@ window.autoGeneratePattern = function () {
   const backOff = bpb >= 4 ? [1, bpb - 1] : [Math.floor(bpb / 2)];
   const isFill  = bar => (bar + 1) % 4 === 0;
 
-  // ── 스타일 5종 — Ld·Rd 전체 드럼 순환, 2~4개 다양하게 사용 ────────
+  // ── 스타일 5종 ─────────────────────────────────────────────────
+  // 핵심 규칙:
+  //  ① 같은 마디 L팔은 하나의 드럼만 (팔 순간이동 방지)
+  //  ② R팔 스네어(Rback)는 backOff 위치에 항상 (박자감 유지)
+  //  ③ 드럼 교체는 마디 단위 — 8분도 같은 드럼 사용
+  //  ④ 필(4마디마다): 마지막 박자에 L·R 각 1개 다른 드럼 추가
+
+  const subR = Rd.find(d => d.id !== Rback)?.id; // 스네어 외 R드럼
+
   const STYLES = [
     {
-      // 마디마다 L팔 드럼을 순차 교체 — 하이햇·탐을 박자마다 다르게
-      name: '탐 로테이션',
+      // 4분 그루브 — 2마디마다 L드럼 교체 (2~3드럼)
+      name: '4분 그루브',
       gen(bs, bar) {
         backOff.forEach(b => safeAdd(Rback, bs + b));
-        for (let b = 0; b < bpb; b++) {
-          safeAdd(lcyc(bar * bpb + b), bs + b);       // 매 박자 다른 L드럼
-        }
-        // 짝수 마디: R팔도 1+3박에 다른 드럼 추가 (3드럼 사용)
-        if (bar % 2 === 0 && Rd.length > 1) {
-          [0, 2].filter(b => !backOff.includes(b))
-                .forEach(b => safeAdd(rcyc(bar + b + 1), bs + b));
-        }
+        const mL = lcyc(Math.floor(bar / 2));          // 2마디마다 교체
+        for (let b = 0; b < bpb; b++) safeAdd(mL, bs + b);
         if (isFill(bar)) {
-          safeAdd(lcyc(bar + 1), bs + bpb - 1);
-          safeAdd(rcyc(bar + 2), bs + bpb - 1);
+          safeAdd(lcyc(Math.floor(bar / 2) + 1), bs + bpb - 1);
+          if (subR) safeAdd(subR, bs + bpb - 1);
         }
       },
     },
 
     {
-      // 4마디 주기로 사용 드럼 수 증가: 2 → 3 → 4 → 풀필
-      name: '밀도 누적',
+      // 탐 백비트 — L탐 1+3박, 마디마다 교체 (2~3드럼)
+      name: '탐 백비트',
       gen(bs, bar) {
-        const phase = bar % 4;
         backOff.forEach(b => safeAdd(Rback, bs + b));
-
-        if (phase === 0) {
-          // 2드럼: L 1개 고정
-          for (let b = 0; b < bpb; b++) safeAdd(lcyc(0), bs + b);
-        } else if (phase === 1) {
-          // 3드럼: L 2개 교차
-          for (let b = 0; b < bpb; b++) safeAdd(lcyc(b % 2), bs + b);
-          [0, 2].filter(b => !backOff.includes(b))
-                .forEach(b => safeAdd(rcyc(1), bs + b));
-        } else if (phase === 2) {
-          // 4드럼: L 전체 순환 + R 서브디비전
-          for (let b = 0; b < bpb; b++) safeAdd(lcyc(b), bs + b);
-          if (Rsub !== Rback) {
-            for (let b = 0; b < bpb; b++) safeAdd(Rsub, bs + b);
-          }
-        } else {
-          // 풀 필: 모든 드럼 교차
-          for (let b = 0; b < bpb; b++) {
-            safeAdd(lcyc(b),     bs + b);
-            safeAdd(rcyc(b + 1), bs + b);
-          }
+        const mL = lcyc(bar);                           // 마디마다 L드럼 교체
+        [0, 2].filter(b => b < bpb).forEach(b => safeAdd(mL, bs + b));
+        // 홀수 마디: R 서브드럼 1박 추가 (3드럼)
+        if (bar % 2 === 1 && subR)
+          [0, 2].filter(b => !backOff.includes(b)).forEach(b => safeAdd(subR, bs + b));
+        if (isFill(bar)) {
+          safeAdd(lcyc(bar + 1), bs + bpb - 2);
+          safeAdd(lcyc(bar + 2), bs + bpb - 1);
         }
       },
     },
 
     {
-      // L·R 각 박자마다 다른 드럼 — 4개 드럼 동시 활용
-      name: '4드럼 교차',
+      // 8비트 일관 — L 한 드럼으로 8분, 2마디마다 교체 (3드럼)
+      name: '8비트 일관',
       gen(bs, bar) {
+        backOff.forEach(b => safeAdd(Rback, bs + b));
+        const mL = lcyc(Math.floor(bar / 2));
         for (let b = 0; b < bpb; b++) {
-          safeAdd(lcyc(bar + b),     bs + b);          // L: 마디+박자 오프셋
-          safeAdd(rcyc(bar + b + 1), bs + b);          // R: 한 칸 어긋나게
+          safeAdd(mL, bs + b);
+          safeAdd(mL, bs + b + 0.5);                   // 같은 드럼 → 팔 안 튐
         }
-        // 8분 추가 (홀수 마디)
+        // 1+3박에 R 서브드럼 (3드럼)
+        if (subR)
+          [0, 2].filter(b => !backOff.includes(b)).forEach(b => safeAdd(subR, bs + b));
+        if (isFill(bar)) {
+          safeAdd(lcyc(Math.floor(bar / 2) + 1), bs + bpb - 1);
+        }
+      },
+    },
+
+    {
+      // 교차 그루브 — 짝수/홀수 마디 다른 L드럼, R도 변화 (3~4드럼)
+      name: '교차 그루브',
+      gen(bs, bar) {
+        backOff.forEach(b => safeAdd(Rback, bs + b));
+        const mL = lcyc(bar % 2 === 0 ? 0 : 1);       // 짝/홀 교차
+        for (let b = 0; b < bpb; b++) safeAdd(mL, bs + b);
+        // 짝수 마디: R 서브드럼 추가 (3드럼)
+        if (bar % 2 === 0 && subR)
+          [0, 2].filter(b => !backOff.includes(b)).forEach(b => safeAdd(subR, bs + b));
+        // 홀수 마디: 8분 추가 (같은 드럼 유지)
         if (bar % 2 === 1) {
-          [0.5, 1.5, 2.5].forEach(off =>
-            safeAdd(lcyc(bar + Math.floor(off) + 2), bs + off)
-          );
+          [0.5, 2.5].forEach(off => safeAdd(mL, bs + off));
         }
         if (isFill(bar)) {
-          safeAdd(lcyc(bar + bpb),     bs + bpb - 1);
-          safeAdd(rcyc(bar + bpb + 1), bs + bpb - 1);
+          safeAdd(lcyc(2), bs + bpb - 2);
+          if (subR) safeAdd(subR, bs + bpb - 1);
         }
       },
     },
 
     {
-      // 2마디마다 L팔 드럼 교체 + 8분 그루브, R 서브디비전 추가
-      name: '8비트 멀티탐',
+      // 섹션 빌드 — 전반 단순(2드럼) → 후반 풍성(3~4드럼)
+      name: '섹션 빌드',
       gen(bs, bar) {
         backOff.forEach(b => safeAdd(Rback, bs + b));
-        const li = Math.floor(bar / 2) % Math.max(Ld.length, 1);
-        const li2 = (li + 1) % Math.max(Ld.length, 1);
-        for (let b = 0; b < bpb; b++) {
-          safeAdd(lcyc(li),  bs + b);
-          if (coin(0.55)) safeAdd(lcyc(li2), bs + b + 0.5);
-        }
-        // R 서브디비전도 변화 (Rsub 사용)
-        if (Rsub !== Rback) {
-          [0, 2].filter(b => !backOff.includes(b))
-                .forEach(b => safeAdd(Rsub, bs + b));
-        }
-        if (isFill(bar)) {
-          safeAdd(lcyc(li + 2), bs + bpb - 2);
-          safeAdd(rcyc(li + 2), bs + bpb - 1);
-        }
-      },
-    },
-
-    {
-      // 확률 기반 — 박자마다 드럼 랜덤 선택, 3~5드럼 사용
-      name: '랜덤 그루브',
-      gen(bs, bar) {
-        for (let b = 0; b < bpb; b++) {
-          // L팔: 70% 확률로 랜덤 드럼
-          if (coin(0.7)) safeAdd(lcyc(bar * bpb + b + Math.floor(Math.random() * Ld.length)), bs + b);
-          // R팔: 백비트 박자는 항상, 나머지는 60%
-          if (backOff.includes(b)) {
-            safeAdd(Rback, bs + b);
-          } else if (coin(0.6)) {
-            safeAdd(rcyc(bar * bpb + b + 1), bs + b);
-          }
-          // 8분 오프비트 (40%)
-          if (coin(0.4)) safeAdd(lcyc(bar * bpb + b + 3), bs + b + 0.5);
+        const half = Math.floor(totalBars / 2);
+        if (bar < half) {
+          // 전반: L 1번 드럼으로 4분
+          for (let b = 0; b < bpb; b++) safeAdd(lcyc(0), bs + b);
+        } else {
+          // 후반: L 2번 드럼으로 4분 + R 서브 추가
+          const mL = lcyc(1);
+          for (let b = 0; b < bpb; b++) safeAdd(mL, bs + b);
+          if (subR)
+            [0, 2].filter(b => !backOff.includes(b)).forEach(b => safeAdd(subR, bs + b));
         }
         if (isFill(bar)) {
-          safeAdd(lcyc(bar + bpb),     bs + bpb - 2);
-          safeAdd(rcyc(bar + bpb + 2), bs + bpb - 1);
+          safeAdd(lcyc(2), bs + bpb - 2);
+          safeAdd(rcyc(2), bs + bpb - 1);
         }
       },
     },
