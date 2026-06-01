@@ -371,9 +371,53 @@ function buildKeyframes() {
 // ═══════════════════════════════════════════════════════════════
 //  YAML 내보내기
 // ═══════════════════════════════════════════════════════════════
+// ── 관절 최대 속도·가속도 (OpenArmX 안전 기준값) ─────────────
+const _JOINT_MAX_VEL = {
+  L1:1.5, L2:1.5, L3:2.0, L4:2.0, L5:2.5, L6:2.5, L7:2.5,
+  R1:1.5, R2:1.5, R3:2.0, R4:2.0, R5:2.5, R6:2.5, R7:2.5,
+};
+const _JOINT_MAX_ACC = {
+  L1:3.0, L2:3.0, L3:4.0, L4:4.0, L5:5.0, L6:5.0, L7:5.0,
+  R1:3.0, R2:3.0, R3:4.0, R4:4.0, R5:5.0, R6:5.0, R7:5.0,
+};
+
+function computeVelAccel(kfs) {
+  const n    = kfs.length;
+  const keys = ['L1','L2','L3','L4','L5','L6','L7','R1','R2','R3','R4','R5','R6','R7'];
+  const vel  = Array.from({ length: n }, () => ({}));
+  const acc  = Array.from({ length: n }, () => ({}));
+
+  keys.forEach(k => {
+    const maxV = _JOINT_MAX_VEL[k] ?? 2.0;
+    const maxA = _JOINT_MAX_ACC[k] ?? 4.0;
+
+    // 시작·끝: 정지 상태 (velocity = 0)
+    vel[0][k] = 0; vel[n-1][k] = 0;
+    acc[0][k] = 0; acc[n-1][k] = 0;
+
+    // 중간: 중앙 차분 (central difference)
+    for (let i = 1; i < n - 1; i++) {
+      const dt = kfs[i+1].time - kfs[i-1].time;
+      vel[i][k] = dt > 0
+        ? clamp((kfs[i+1].angles[k] - kfs[i-1].angles[k]) / dt, -maxV, maxV)
+        : 0;
+    }
+    // 가속도: velocity의 중앙 차분
+    for (let i = 1; i < n - 1; i++) {
+      const dt = kfs[i+1].time - kfs[i-1].time;
+      acc[i][k] = dt > 0
+        ? clamp((vel[i+1][k] - vel[i-1][k]) / dt, -maxA, maxA)
+        : 0;
+    }
+  });
+  return { vel, acc };
+}
+
 window.exportYAML = function () {
   const kfs = buildMergedKeyframes();
   if (kfs.length <= 1) { alert('타임라인에 드럼 이벤트를 추가하세요.'); return; }
+
+  const { vel, acc } = computeVelAccel(kfs);
 
   const jointNames = [
     'openarmx_left_joint1','openarmx_left_joint2','openarmx_left_joint3','openarmx_left_joint4',
@@ -387,11 +431,18 @@ window.exportYAML = function () {
   jointNames.forEach(n => { yaml += `- ${n}\n`; });
   yaml += 'points:\n';
 
-  kfs.forEach(kf => {
+  kfs.forEach((kf, i) => {
     yaml += '- positions:\n';
     shortKeys.forEach(k => {
-      const v = kf.angles[k] !== undefined ? kf.angles[k] : 0;
-      yaml += `  - ${parseFloat(v.toFixed(4))}\n`;
+      yaml += `  - ${parseFloat((kf.angles[k] ?? 0).toFixed(4))}\n`;
+    });
+    yaml += '  velocities:\n';
+    shortKeys.forEach(k => {
+      yaml += `  - ${parseFloat((vel[i][k] ?? 0).toFixed(4))}\n`;
+    });
+    yaml += '  accelerations:\n';
+    shortKeys.forEach(k => {
+      yaml += `  - ${parseFloat((acc[i][k] ?? 0).toFixed(4))}\n`;
     });
     yaml += `  time_from_start: ${kf.time.toFixed(3)}\n`;
   });
@@ -401,7 +452,7 @@ window.exportYAML = function () {
   a.href     = 'data:text/yaml;charset=utf-8,' + encodeURIComponent(yaml);
   a.download = `drum_${ts}.yaml`;
   a.click();
-  setStatus(`YAML 저장 완료 — ${kfs.length}개 키프레임`);
+  setStatus(`YAML 저장 완료 — ${kfs.length}개 포인트 (positions·velocities·accelerations)`);
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -471,9 +522,29 @@ window.validatePattern = function () {
   let yamlOk = true;
   kfs.forEach(kf => { shortKeys.forEach(k => { if (!isFinite(kf.angles[k])) yamlOk = false; }); });
   results.push(yamlOk
-    ? { lv:'ok',  msg:`최종 YAML: ${kfs.length}개 포인트 — 기존 포맷과 동일 ✓` }
+    ? { lv:'ok',  msg:`최종 YAML: ${kfs.length}개 포인트 (positions + velocities + accelerations) ✓` }
     : { lv:'err', msg:'YAML에 유효하지 않은 값이 있습니다.' }
   );
+
+  // ── 키프레임 밀도 체크 ──────────────────────────────────────
+  // ROS2 컨트롤러 처리 가능 최소 간격 기준
+  let densityErrCnt = 0, densityWarnCnt = 0;
+  for (let i = 1; i < kfs.length; i++) {
+    const gap = kfs[i].time - kfs[i-1].time;
+    const ms  = (gap * 1000).toFixed(0);
+    if (gap < 0.025) {
+      densityErrCnt++;
+      results.push({ lv:'err',  msg:`키프레임 간격 ${ms}ms (t=${kfs[i].time.toFixed(3)}s) — 컨트롤러 처리 불가 (최소 25ms)` });
+    } else if (gap < 0.055) {
+      densityWarnCnt++;
+      if (densityWarnCnt <= 3)  // 경고 최대 3개만 표시
+        results.push({ lv:'warn', msg:`키프레임 간격 ${ms}ms (t=${kfs[i].time.toFixed(3)}s) — 고속 구간, 확인 권장` });
+    }
+  }
+  if (densityWarnCnt > 3)
+    results.push({ lv:'warn', msg:`외 ${densityWarnCnt - 3}개 고속 구간 더 있음` });
+  if (densityErrCnt === 0 && densityWarnCnt === 0)
+    results.push({ lv:'ok', msg:'모든 키프레임 간격 정상 (≥ 55ms)' });
 
   const iconMap = { ok:'✓', warn:'⚠', err:'✗', info:'ℹ' };
   document.getElementById('validation-content').innerHTML =
@@ -655,6 +726,128 @@ function updateTCPHud() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  드럼 사운드 합성 (Web Audio — 외부 파일 없이 합성음 사용)
+// ═══════════════════════════════════════════════════════════════
+let _drumAudioCtx = null;
+let _drumSoundOn  = true;
+
+function _getDrumCtx() {
+  if (!_drumAudioCtx) _drumAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_drumAudioCtx.state === 'suspended') _drumAudioCtx.resume();
+  return _drumAudioCtx;
+}
+
+const _drumSounds = {
+  // 킥·플로어탐: 사인파 피치 스윕
+  kick(t, c, g=0.9)  { _synthPitch(c, t, 120, 28, 0.35, g); },
+  tom_f(t, c, g=0.8) { _synthPitch(c, t, 90,  35, 0.30, g); },
+  // 스네어: 노이즈 + 짧은 저음
+  snare(t, c, g=0.7) {
+    _synthNoise(c, t, 'bandpass', 1400, 0.8, 0.14, g);
+    _synthPitch(c, t, 200, 100, 0.08, g * 0.5);
+  },
+  // 탐: 피치 스윕 (주파수만 다름)
+  tom_h(t, c, g=0.7) { _synthPitch(c, t, 260, 110, 0.22, g); },
+  tom_m(t, c, g=0.7) { _synthPitch(c, t, 170,  80, 0.25, g); },
+  // 하이햇: 고역 노이즈
+  hihat(t, c, g=0.45){ _synthNoise(c, t, 'highpass', 8000, 1.2, 0.06, g); },
+  // 크래시·라이드: 긴 노이즈
+  crash(t, c, g=0.5) { _synthNoise(c, t, 'bandpass', 5500, 0.4, 0.70, g); },
+  ride(t, c, g=0.38) { _synthNoise(c, t, 'bandpass', 6500, 0.6, 0.38, g); },
+};
+
+function _synthPitch(c, t, f0, f1, dur, gain) {
+  const osc = c.createOscillator(), g = c.createGain();
+  osc.connect(g); g.connect(c.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(f0, t);
+  osc.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.start(t); osc.stop(t + dur + 0.01);
+}
+function _synthNoise(c, t, filterType, freq, Q, dur, gain) {
+  const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+  src.buffer = buf; src.connect(f); f.connect(g); g.connect(c.destination);
+  f.type = filterType; f.frequency.value = freq; f.Q.value = Q;
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.start(t); src.stop(t + dur + 0.01);
+}
+
+window.toggleDrumSound = function () {
+  _drumSoundOn = !_drumSoundOn;
+  const btn = document.getElementById('btn-sound');
+  if (btn) { btn.textContent = _drumSoundOn ? '🔊' : '🔇'; btn.classList.toggle('on', _drumSoundOn); }
+};
+
+function playDrumSound(drumType) {
+  if (!_drumSoundOn) return;
+  try {
+    const c  = _getDrumCtx();
+    const fn = _drumSounds[drumType] || _drumSounds.tom_m;
+    fn(c.currentTime + 0.005, c);
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TCP 궤적 렌더링
+// ═══════════════════════════════════════════════════════════════
+const TRAIL_MAX  = 48;   // 최대 저장 포인트 수
+const TRAIL_UPD  = 55;   // ms 간격으로 갱신 (약 18fps)
+const _trailData = {
+  L: { pts: [], lastUpd: 0, color: 0x3a7ae0 },
+  R: { pts: [], lastUpd: 0, color: 0xe04030 },
+};
+const _trailLines = { L: null, R: null };
+let   _trailOn   = true;
+
+window.toggleTCPTrail = function () {
+  _trailOn = !_trailOn;
+  const btn = document.getElementById('btn-trail');
+  if (btn) btn.classList.toggle('on', _trailOn);
+  if (!_trailOn) ['L','R'].forEach(arm => {
+    if (_trailLines[arm]) { scene.remove(_trailLines[arm]); _trailLines[arm] = null; }
+    _trailData[arm].pts = [];
+  });
+};
+
+function updateTCPTrails() {
+  if (!_trailOn || !isPlaying) return;
+  const now = performance.now();
+  ['L','R'].forEach(arm => {
+    const td = _trailData[arm];
+    if (now - td.lastUpd < TRAIL_UPD) return;
+    td.lastUpd = now;
+
+    const tcp = groups[`${arm}_tcp`];
+    if (!tcp) return;
+    const pos = new THREE.Vector3();
+    tcp.getWorldPosition(pos);
+    td.pts.push(pos.clone());
+    if (td.pts.length > TRAIL_MAX) td.pts.shift();
+    if (td.pts.length < 2) return;
+
+    if (_trailLines[arm]) { scene.remove(_trailLines[arm]); _trailLines[arm].geometry.dispose(); }
+    const geo = new THREE.BufferGeometry().setFromPoints(td.pts);
+    const mat = new THREE.LineBasicMaterial({ color: td.color, transparent: true, opacity: 0.55 });
+    _trailLines[arm] = new THREE.Line(geo, mat);
+    _trailLines[arm].frustumCulled = false;
+    scene.add(_trailLines[arm]);
+  });
+}
+
+function clearTCPTrails() {
+  ['L','R'].forEach(arm => {
+    if (_trailLines[arm]) { scene.remove(_trailLines[arm]); _trailLines[arm] = null; }
+    _trailData[arm].pts = [];
+  });
+}
+
 // ── 드럼 구체 ────────────────────────────────────────────────
 const drumSphereGroup = new THREE.Group();
 sceneRoot.add(drumSphereGroup);
@@ -805,6 +998,7 @@ window.stopAnim = function () {
   isPlaying   = false;
   pauseOffset = 0;
   _stopAudio();
+  clearTCPTrails();
   document.getElementById('scrubber').value = 0;
   updateFK({ ...NEUTRAL });
   updateTimeLbl(0);
@@ -870,6 +1064,7 @@ function animate() {
         mesh.material.emissiveIntensity = 1.8;
         mesh.scale.setScalar(1.25);
         document.querySelectorAll(`.tl-hit[data-key="${key}"]`).forEach(h => h.classList.add('flash'));
+        playDrumSound(drum.type);   // ← 드럼 사운드 트리거
       } else if (!inHit && _flashState[key]) {
         _flashState[key] = false;
         mesh.material.emissiveIntensity = 0.22;
@@ -883,6 +1078,8 @@ function animate() {
   if (!window._drumPreviewActive) {
     updateFK(interpolateAngles(t, _playKFs));
   }
+
+  updateTCPTrails();   // ← TCP 궤적 갱신
 
   const cvs = renderer.domElement;
   const w   = viewport.clientWidth;
