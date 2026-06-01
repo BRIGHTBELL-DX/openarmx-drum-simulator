@@ -1421,19 +1421,36 @@ window.autoGeneratePattern = function () {
 
   const coin = p => Math.random() < (p ?? 0.5);
 
-  const D = {
-    snare:    drumKit.find(d => d.type === 'snare')?.id,
-    hihat:    drumKit.find(d => d.type === 'hihat')?.id,
-    midTom:   drumKit.find(d => d.type === 'tom_m')?.id,
-    hiTom:    drumKit.find(d => d.type === 'tom_h')?.id,
-    floorTom: drumKit.find(d => d.type === 'tom_f')?.id,
-    ride:     drumKit.find(d => d.type === 'ride')?.id,
-    crashL:   drumKit.find(d => d.type === 'crash' && d.arm === 'L')?.id,
-    crashR:   drumKit.find(d => d.type === 'crash' && d.arm === 'R')?.id,
+  // ── 현재 드럼킷 기반 동적 역할 배정 ──────────────────────────────
+  // 팔이 바뀌거나 드럼이 추가·삭제돼도 현재 구성에 맞게 자동 적응
+  const Ld = drumKit.filter(d => d.arm === 'L' && d.type !== 'kick');
+  const Rd = drumKit.filter(d => d.arm === 'R' && d.type !== 'kick');
+
+  // 우선순위 목록으로 ID 찾기
+  const pick = (pool, types) =>
+    pool.find(d => types.includes(d.type))?.id ?? pool[0]?.id;
+
+  // L팔: 리듬 탐 · 세분(하이햇류) · 필 탐 · 악센트
+  const L = {
+    rhythm: pick(Ld, ['tom_m','hihat','tom_h','tom_f','crash','ride']),
+    subdiv: pick(Ld, ['hihat','tom_h','tom_m','ride','crash']),
+    fill1:  pick(Ld, ['tom_h','tom_m','hihat','crash']),
+    accent: pick(Ld, ['crash','hihat','tom_m']),
+  };
+  // fill2: fill1과 다른 두 번째 L팔 드럼
+  const L_fill2 = Ld.find(d => d.id !== L.fill1)?.id ?? L.fill1;
+
+  // R팔: 백비트 · 세분(라이드류) · 필 탐 · 악센트
+  const R = {
+    back:   pick(Rd, ['snare','tom_f','ride','crash']),
+    subdiv: pick(Rd, ['ride','hihat','snare','tom_f']),
+    fill:   pick(Rd, ['tom_f','snare','ride']),
+    accent: pick(Rd, ['crash','ride','snare']),
   };
 
-  const snareOff = bpb >= 4 ? [1, bpb - 1] : [Math.floor(bpb / 2)];
-  const isFill   = bar => (bar + 1) % 4 === 0; // 4마디마다 필
+  // 백비트 위치 (4/4 → 2·4박, 3/4 → 2박)
+  const backOff = bpb >= 4 ? [1, bpb - 1] : [Math.floor(bpb / 2)];
+  const isFill  = bar => (bar + 1) % 4 === 0;
 
   // ── 스타일 5종 (8분음표 이하, 로봇 친화적) ───────────────────────
 
@@ -1441,32 +1458,28 @@ window.autoGeneratePattern = function () {
     {
       name: '락 비트',
       gen(bs, bar) {
-        snareOff.forEach(b => safeAdd(D.snare, bs + b));
-        // 짝수 마디: 4분 하이햇 / 홀수 마디: 8분 하이햇
+        backOff.forEach(b => safeAdd(R.back, bs + b));
         for (let b = 0; b < bpb; b++) {
-          safeAdd(D.hihat, bs + b);
-          if (bar % 2 === 1) safeAdd(D.hihat, bs + b + 0.5);
+          safeAdd(L.subdiv, bs + b);
+          if (bar % 2 === 1) safeAdd(L.subdiv, bs + b + 0.5);
         }
-        // 필: 3박에 미드탐, 4박에 플로어탐
         if (isFill(bar)) {
-          safeAdd(D.midTom,   bs + bpb - 2);
-          safeAdd(D.floorTom, bs + bpb - 1);
+          safeAdd(L.rhythm, bs + bpb - 2);
+          safeAdd(R.fill,   bs + bpb - 1);
         }
       },
     },
 
     {
-      name: '미드탐 그루브',
+      name: 'L 리듬 그루브',
       gen(bs, bar) {
-        snareOff.forEach(b => safeAdd(D.snare, bs + b));
-        [0, 2].forEach(b => b < bpb && safeAdd(D.midTom, bs + b));
-        // 가끔 하이햇 오프비트 (2박뒤, 4박뒤)
-        if (coin(0.6)) safeAdd(D.hihat, bs + 1.5);
-        if (coin(0.6)) safeAdd(D.hihat, bs + 3.5);
-        // 필: 마지막 2박 하이탐→미드탐
+        backOff.forEach(b => safeAdd(R.back, bs + b));
+        [0, 2].forEach(b => b < bpb && safeAdd(L.rhythm, bs + b));
+        if (coin(0.6)) safeAdd(L.subdiv, bs + 1.5);
+        if (coin(0.6)) safeAdd(L.subdiv, bs + 3.5);
         if (isFill(bar)) {
-          safeAdd(D.hiTom,  bs + bpb - 2);
-          safeAdd(D.midTom, bs + bpb - 1);
+          safeAdd(L.fill1,  bs + bpb - 2);
+          safeAdd(L_fill2,  bs + bpb - 1);
         }
       },
     },
@@ -1474,61 +1487,45 @@ window.autoGeneratePattern = function () {
     {
       name: '8비트 그루브',
       gen(bs, bar) {
-        snareOff.forEach(b => safeAdd(D.snare, bs + b));
+        backOff.forEach(b => safeAdd(R.back, bs + b));
         for (let b = 0; b < bpb; b++) {
-          safeAdd(D.hihat, bs + b);
-          safeAdd(D.hihat, bs + b + 0.5);
+          safeAdd(L.subdiv, bs + b);
+          safeAdd(L.subdiv, bs + b + 0.5);
         }
-        // 2마디마다 1박 미드탐 악센트
-        if (bar % 2 === 0) safeAdd(D.midTom, bs);
-        // 필: 크래시 + 플로어
+        if (bar % 2 === 0) safeAdd(L.rhythm, bs);
         if (isFill(bar)) {
-          safeAdd(D.floorTom, bs + bpb - 1);
-          safeAdd(D.crashL,   bs + bpb - 1);
+          safeAdd(R.fill,   bs + bpb - 1);
+          safeAdd(L.accent, bs + bpb - 1);
         }
       },
     },
 
     {
-      name: '탐 순환',
+      name: 'L 탐 순환',
       gen(bs, bar) {
-        snareOff.forEach(b => safeAdd(D.snare, bs + b));
-        // 4마디 주기로 탐 조합 순환
-        const tomCycle = [
-          [D.midTom, 0], [D.hiTom,  2],   // 마디 0: 미드1·하이3
-          [D.hiTom,  0], [D.midTom, 2],   // 마디 1: 하이1·미드3
-          [D.midTom, 0], [D.midTom, 2],   // 마디 2: 미드1·미드3
-          [D.hiTom,  0], [D.hiTom,  2],   // 마디 3: 하이1·하이3
-        ][bar % 4];
-        // tomCycle는 2개씩 묶음이므로 bar%4 * 2 으로 접근
-        const idx = (bar % 4) * 2;
-        const allCycles = [
-          [D.midTom,0],[D.hiTom,2],
-          [D.hiTom,0],[D.midTom,2],
-          [D.midTom,0],[D.midTom,2],
-          [D.hiTom,0],[D.hiTom,2],
-        ];
-        safeAdd(allCycles[idx][0], bs + allCycles[idx][1]);
-        safeAdd(allCycles[idx+1][0], bs + allCycles[idx+1][1]);
-        // 필: 플로어탐 + 크래시
+        backOff.forEach(b => safeAdd(R.back, bs + b));
+        // 4마디 주기로 fill1·fill2 교차
+        const cyc = [[L.fill1,0],[L_fill2,2],[L_fill2,0],[L.fill1,2]];
+        const [drumA, offA] = cyc[(bar*2)%4] ?? [L.fill1,0];
+        const [drumB, offB] = cyc[(bar*2+1)%4] ?? [L_fill2,2];
+        safeAdd(drumA, bs + offA);
+        safeAdd(drumB, bs + offB);
         if (isFill(bar)) {
-          safeAdd(D.floorTom, bs + bpb - 1);
-          safeAdd(D.crashL,   bs);
+          safeAdd(R.fill,   bs + bpb - 1);
+          safeAdd(L.accent, bs);
         }
       },
     },
 
     {
-      name: '라이드 그루브',
+      name: 'R 세분 그루브',
       gen(bs, bar) {
-        snareOff.forEach(b => safeAdd(D.snare, bs + b));
-        for (let b = 0; b < bpb; b++) safeAdd(D.ride, bs + b);
-        // 2마디 주기로 미드탐 악센트 위치 변화
-        safeAdd(D.midTom, bs + (bar % 2 === 0 ? 0 : 2));
-        // 필: 미드탐→플로어탐
+        backOff.forEach(b => safeAdd(R.back, bs + b));
+        for (let b = 0; b < bpb; b++) safeAdd(R.subdiv, bs + b);
+        safeAdd(L.rhythm, bs + (bar % 2 === 0 ? 0 : 2));
         if (isFill(bar)) {
-          safeAdd(D.midTom,   bs + bpb - 2);
-          safeAdd(D.floorTom, bs + bpb - 1);
+          safeAdd(L.rhythm, bs + bpb - 2);
+          safeAdd(R.fill,   bs + bpb - 1);
         }
       },
     },
@@ -1540,8 +1537,8 @@ window.autoGeneratePattern = function () {
     style.gen(bar * bpb + 1, bar);
   }
 
-  // 오프닝 크래시
-  safeAdd(D.crashL, 1);
+  // 오프닝 악센트
+  safeAdd(L.accent, 1);
 
   renderTimeline();
   _playKFs = buildKeyframes();
