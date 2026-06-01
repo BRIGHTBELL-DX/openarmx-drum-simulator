@@ -286,28 +286,46 @@ function buildKeyframes() {
   L_poseMap.set('0.000', { ...NEUTRAL_L });
   R_poseMap.set('0.000', { ...NEUTRAL_R });
 
+  // 팔별 이벤트를 시간순 정렬 — rebound/raise 겹침 감지에 필요
+  const armEvts = { L: [], R: [] };
   timelineEvents.forEach(evt => {
     const drum = drumKit.find(d => d.id === evt.drumId);
     if (!drum || drum.type === 'kick') return;
+    const t = parseFloat(((evt.beat - 1) * beatDur).toFixed(3));
+    armEvts[drum.arm].push({ drum, t });
+  });
+  armEvts.L.sort((a, b) => a.t - b.t);
+  armEvts.R.sort((a, b) => a.t - b.t);
 
-    const t        = parseFloat(((evt.beat - 1) * beatDur).toFixed(3));
-    const typeInfo = DRUM_TYPES[drum.type];
-    const raiseT   = parseFloat(Math.max(0.001, t - preDur).toFixed(3));
-    const reboundT = parseFloat((t + typeInfo.rebDur).toFixed(3));
+  function addPose(poseMap, time, pose, sideKeys) {
+    const key = time.toFixed(3);
+    if (!poseMap.has(key)) poseMap.set(key, {});
+    const cur = poseMap.get(key);
+    sideKeys.forEach(k => { cur[k] = pose[k]; });
+  }
 
-    const poseMap  = drum.arm === 'L' ? L_poseMap : R_poseMap;
-    const sideKeys = drum.arm === 'L' ? L_KEYS    : R_KEYS;
+  ['L', 'R'].forEach(arm => {
+    const poseMap  = arm === 'L' ? L_poseMap : R_poseMap;
+    const sideKeys = arm === 'L' ? L_KEYS    : R_KEYS;
 
-    [
-      { time: raiseT,   phase: 'raise'   },
-      { time: t,        phase: 'strike'  },
-      { time: reboundT, phase: 'rebound' },
-    ].forEach(({ time, phase }) => {
-      const pose = computeStrikePose(drum, phase);
-      const key  = time.toFixed(3);
-      if (!poseMap.has(key)) poseMap.set(key, {});
-      const cur  = poseMap.get(key);
-      sideKeys.forEach(k => { cur[k] = pose[k]; });
+    armEvts[arm].forEach(({ drum, t }, idx) => {
+      const typeInfo = DRUM_TYPES[drum.type];
+      const raiseT   = parseFloat(Math.max(0.001, t - preDur).toFixed(3));
+      const reboundT = parseFloat((t + typeInfo.rebDur).toFixed(3));
+
+      // 다음 이벤트 raise보다 이 rebound가 늦으면 → rebound 생략
+      // (팔이 rebound 없이 바로 다음 raise 위치로 자연스럽게 이동)
+      const next = armEvts[arm][idx + 1];
+      const nextRaiseT = next
+        ? parseFloat(Math.max(0.001, next.t - preDur).toFixed(3))
+        : Infinity;
+      const includeRebound = reboundT <= nextRaiseT;
+
+      addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'),  sideKeys);
+      addPose(poseMap, t,      computeStrikePose(drum, 'strike'), sideKeys);
+      if (includeRebound) {
+        addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound'), sideKeys);
+      }
     });
   });
 
