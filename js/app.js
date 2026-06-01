@@ -152,10 +152,10 @@ const _IK_LIMITS = {
   R4:[0.05, 1.70], R5:[-2.9, 2.9], R6:[-1.57, 1.57],
 };
 
-// j4Min: 팔꿈치 최소 굽힘 (심벌류에서 과다 연장 방지)
-function _solveIK(arm, targetUrdf, initAngles, j7, j4Min) {
+// extraLimits: { 'L1':[-2,-0.25], 'L4':[0.28,1.70] } 등 관절별 한계 오버라이드
+function _solveIK(arm, targetUrdf, initAngles, j7, extraLimits) {
   const LIMITS = { ..._IK_LIMITS };
-  if (j4Min !== undefined) LIMITS[`${arm}4`] = [j4Min, 1.70];
+  if (extraLimits) Object.assign(LIMITS, extraLimits);
 
   const JK  = [1,2,3,4,5,6].map(i => `${arm}${i}`);
   const a   = { [`${arm}7`]: j7 };
@@ -269,9 +269,23 @@ function computeStrikePose(drum, phase) {
   const init  = {};
   [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
 
-  // 심벌: J4 팔꿈치 최소 굽힘(0.28 rad) 강제 — 과다 연장 방지
-  const j4Min  = isCymbal ? 0.28 : undefined;
-  const solved = _solveIK(s, target, init, j7, j4Min);
+  // 심벌용 IK 추가 제약
+  const extraLimits = {};
+  if (isCymbal) {
+    // J4 팔꿈치 최소 굽힘 — 과다 연장 방지
+    extraLimits[`${s}4`] = [0.28, 1.70];
+
+    // 측면 심벌: J1 어깨를 바깥쪽으로 강제
+    // → "J1≈0 + J2 급경사" 국소해 방지, 자연스러운 팔 펼침 유도
+    const lateralDist = (s === 'L' ? 1 : -1) * (drum.pos.y - ARM_ROOT[s].y);
+    if (lateralDist > 0.12) {
+      if (s === 'L') extraLimits['L1'] = [-2.0, -0.22];  // L팔: 어깨 왼쪽으로
+      else           extraLimits['R1'] = [ 0.22,  2.0];  // R팔: 어깨 오른쪽으로
+    }
+  }
+
+  const solved = _solveIK(s, target, init, j7,
+                           Object.keys(extraLimits).length ? extraLimits : undefined);
 
   // 포즈 조립 (해당 팔만 — buildKeyframes에서 L/R 트랙 분리)
   const pose = { ...NEUTRAL };
