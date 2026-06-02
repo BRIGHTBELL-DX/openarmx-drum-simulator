@@ -300,8 +300,8 @@ function computeStrikePose(drum, phase) {
  *  이 포즈를 시작·끝 기준으로 사용해 팔이 드럼 앞에서 대기하도록 보장 */
 function _getReadyPoses() {
   const p = (typeof INTRO_OUTRO_PRESETS !== 'undefined'
-    ? INTRO_OUTRO_PRESETS.default?.frontReadyPose : null)
-    ?? [-0.79,-0.04,0.01,1.54,0,0,-0.58, 0.79,0.04,-0.01,1.54,0,0,0.58];
+    ? (INTRO_OUTRO_PRESETS.default?.frontReadyPose) : null)
+    ?? [-0.79, -0.04, 0.01, 1.54, 0, 0, -0.58, 0.79, 0.04, -0.01, 1.54, 0, 0, 0.58];
   return {
     L: { L1:p[0], L2:p[1], L3:p[2], L4:p[3], L5:p[4], L6:p[5], L7:p[6] },
     R: { R1:p[7], R2:p[8], R3:p[9], R4:p[10], R5:p[11], R6:p[12], R7:p[13] },
@@ -1044,54 +1044,55 @@ function _breathePose(base, amp) {
 }
 
 /**
- * 인트로 4초 구조 (재설계)
- *  0.0s → neutral
- *  1.0s → rearClearPose    (빠른 경로 확보)
- *  2.0s → frontReadyPose   (연주 준비)
- *  ─── 이후 숨쉬기 유지 ────────────────
- *  2.5s → breathe in  (+0.06 rad)
- *  3.0s → breathe out (ready)
- *  3.4s → breathe in  (+0.05 rad)
- *  3.7s → breathe out → 정지
- *  4.0s → firstDrumPose  (드럼 시작!)
+ * 인트로 4초 — armSpreadPose 경유 (스틱 충돌 안전)
+ *
+ *  0.00s: neutral         — 시작
+ *  1.30s: armSpreadPose   — 양팔 옆으로 최대 벌림 (충돌 없는 후퇴)
+ *  2.75s: frontReadyPose  — 앞으로 들어오며 준비
+ *  3.00s: frontReadyPose  — 홀드
+ *  3.30s: breathe in (+0.04)
+ *  3.70s: breathe out     — 정지
+ *  4.00s: firstDrumPose   — ▶ 드럼 시작
+ *
+ *  smoothstep 보간: 각 구간이 S곡선으로 자연스럽게 연결됨
  */
 function createDrumIntroTimeline(firstDrumPose, preset) {
   const nu = _arrToAngles(preset.neutralPose);
-  const rc = _arrToAngles(preset.rearClearPose);
+  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   const fp = _arrToAngles(preset.frontReadyPose);
   return [
-    { time: 0.0, angles: nu                        },
-    { time: 1.0, angles: rc                        },  // 빠른 후퇴
-    { time: 2.0, angles: fp                        },  // 준비 완료
-    { time: 2.5, angles: _breathePose(fp, +0.06)  },  // 숨 들이쉬기 1
-    { time: 3.0, angles: fp                        },  // 숨 내쉬기 1
-    { time: 3.4, angles: _breathePose(fp, +0.05)  },  // 숨 들이쉬기 2
-    { time: 3.7, angles: fp                        },  // 숨 내쉬기 2 → 정지
-    { time: 4.0, angles: firstDrumPose             },  // ▶ 드럼 시작
+    { time: 0.00, angles: nu                       },
+    { time: 1.30, angles: as                       },  // 팔 양옆 벌림
+    { time: 2.75, angles: fp                       },  // 앞으로 들어옴
+    { time: 3.00, angles: fp                       },  // 홀드
+    { time: 3.30, angles: _breathePose(fp, +0.04)  },  // 숨 들이쉬기
+    { time: 3.70, angles: fp                       },  // 숨 내쉬기 → 정지
+    { time: 4.00, angles: firstDrumPose             },  // ▶ 드럼 시작
   ];
 }
 
 /**
- * 아웃트로 4초 구조 (재설계)
- *  +0.0s → lastDrumPose   (마지막 드럼 자세)
- *  +0.8s → frontReadyPose (준비 자세 복귀)
- *  +1.3s → breathe in
- *  +1.8s → frontReadyPose (숨 내쉬기 → 정지)
- *  +2.6s → rearClearPose  (뒤로 물러남)
- *  +4.0s → neutralPose    (완전 복귀)
+ * 아웃트로 4초 — 인트로의 역순 미러링
+ *
+ *  +0.00s: lastDrumPose   — 마지막 드럼 자세
+ *  +0.50s: frontReadyPose — 준비 자세 복귀
+ *  +0.80s: breathe in
+ *  +1.25s: frontReadyPose — 정지
+ *  +2.70s: armSpreadPose  — 팔 양옆으로 벌리며 후퇴
+ *  +4.00s: neutralPose    — 완전 복귀
  */
 function createDrumOutroTimeline(lastDrumPose, preset, startTime) {
   const s  = startTime;
   const fp = _arrToAngles(preset.frontReadyPose);
-  const rc = _arrToAngles(preset.rearClearPose);
+  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   const nu = _arrToAngles(preset.neutralPose);
   return [
-    { time: s + 0.0, angles: lastDrumPose              },
-    { time: s + 0.8, angles: fp                         },  // 준비 자세 복귀
-    { time: s + 1.3, angles: _breathePose(fp, +0.05)   },  // 숨쉬기
-    { time: s + 1.8, angles: fp                         },  // 정지
-    { time: s + 2.6, angles: rc                         },  // 후퇴
-    { time: s + 4.0, angles: nu                         },  // 중립 복귀
+    { time: s + 0.00, angles: lastDrumPose              },
+    { time: s + 0.50, angles: fp                         },  // 준비 자세 복귀
+    { time: s + 0.80, angles: _breathePose(fp, +0.04)   },  // 숨쉬기
+    { time: s + 1.25, angles: fp                         },  // 정지
+    { time: s + 2.70, angles: as                         },  // 팔 양옆 벌리며 후퇴
+    { time: s + 4.00, angles: nu                         },  // 중립 복귀
   ];
 }
 
