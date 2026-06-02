@@ -1244,7 +1244,21 @@ function _updatePlayhead(t) {
   const ph = document.getElementById('tl-playhead');
   if (!ph || !_playDur) return;
   const totalW = totalBars * beatsPerBar * PX_PER_BEAT;
-  ph.style.left = Math.min(totalW, (t / _playDur) * totalW).toFixed(1) + 'px';
+
+  // 인트로/아웃트로가 있을 때 재생헤드는 드럼 섹션 기준 시간으로 계산
+  // → 인트로 구간(0~introDur): 재생헤드 t=0에 고정
+  // → 드럼 구간: 정상 이동
+  // → 아웃트로 구간: totalW에 고정
+  const introDur = _getAudioTimeOffset();
+  const outroDur = (document.getElementById('chk-outro')?.checked ?? true) ? 4.0 : 0.0;
+  const drumDur  = Math.max(0.01, _playDur - introDur - outroDur);
+  const drumT    = t - introDur;
+
+  const x = drumT <= 0
+    ? 0
+    : Math.min(totalW, (drumT / drumDur) * totalW);
+
+  ph.style.left = x.toFixed(1) + 'px';
 }
 
 // ── 메인 애니메이션 루프 ─────────────────────────────────────
