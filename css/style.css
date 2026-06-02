@@ -338,6 +338,14 @@ body {
   font-size: 11px;
   color: var(--dim);
 }
+.chk-intro-outro {
+  color: #88aadd !important;
+  font-weight: 600;
+  padding: 2px 6px;
+  background: rgba(50,80,150,0.18);
+  border-radius: 4px;
+  border: 1px solid #2a3860;
+}
 #tl-controls label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 #tl-controls select {
   background: var(--bg);

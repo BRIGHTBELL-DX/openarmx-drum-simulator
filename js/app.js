@@ -59,7 +59,7 @@ window.resetDrumKit = function () {
   nextDrumId = DEFAULT_DRUM_KIT.length;
   saveDrumKit();
   renderDrumList(); rebuildDrumSpheres(); renderTimeline();
-  _playKFs = buildKeyframes(); _playDur = _playKFs.totalTime;
+  _playKFs = buildFinalKeyframes(); _playDur = _playKFs.totalTime;
   setStatus('드럼 키트 기본값으로 초기화됨');
 };
 
@@ -414,7 +414,7 @@ function computeVelAccel(kfs) {
 }
 
 window.exportYAML = function () {
-  const kfs = buildMergedKeyframes();
+  const kfs = buildFinalFlatTimeline();   // 인트로/아웃트로 포함 최종 타임라인
   if (kfs.length <= 1) { alert('타임라인에 드럼 이벤트를 추가하세요.'); return; }
 
   const { vel, acc } = computeVelAccel(kfs);
@@ -517,7 +517,7 @@ window.validatePattern = function () {
 
   if (bpm > 180) results.push({ lv:'warn', msg:`BPM ${bpm}: 고속 연주 — 로봇 구동 한계를 확인하세요.` });
 
-  const kfs       = buildMergedKeyframes();
+  const kfs       = buildFinalFlatTimeline();   // 인트로/아웃트로 포함
   const shortKeys = ['L1','L2','L3','L4','L5','L6','L7','R1','R2','R3','R4','R5','R6','R7'];
   let yamlOk = true;
   kfs.forEach(kf => { shortKeys.forEach(k => { if (!isFinite(kf.angles[k])) yamlOk = false; }); });
@@ -961,6 +961,7 @@ function interpolateArm(t, kfs, keys) {
 }
 
 function interpolateAngles(t, kfs) {
+  if (kfs.flat) return interpolateAnglesFlat(t, kfs.flat);   // intro/outro 통합 포맷
   const L_result = interpolateArm(t, kfs.L, ['L1','L2','L3','L4','L5','L6','L7']);
   const R_result = interpolateArm(t, kfs.R, ['R1','R2','R3','R4','R5','R6','R7']);
   return { ...L_result, ...R_result, L_grip: 0, R_grip: 0 };
@@ -977,8 +978,158 @@ function buildMergedKeyframes() {
     .sort((a, b) => a.time - b.time);
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  인트로·아웃트로 빌드 (재생·YAML 공통)
+// ═══════════════════════════════════════════════════════════════
+
+const _JOINT_KEYS14 = ['L1','L2','L3','L4','L5','L6','L7',
+                       'R1','R2','R3','R4','R5','R6','R7'];
+
+/** 배열 14개 → angles 객체 변환 */
+function _arrToAngles(arr) {
+  const obj = { L_grip: 0, R_grip: 0 };
+  _JOINT_KEYS14.forEach((k, i) => { obj[k] = arr[i] ?? 0; });
+  return obj;
+}
+
+/** 마지막 키프레임이 완전 0값(NEUTRAL)이면 제거 */
+function removeHardResetPoint(tl) {
+  if (tl.length <= 1) return tl;
+  const last = tl[tl.length - 1];
+  const isZero = _JOINT_KEYS14.every(k => Math.abs(last.angles[k] ?? 0) < 0.001);
+  return isZero ? tl.slice(0, -1) : tl;
+}
+
+/** 너무 짧은 구간(< minInterval) 보정 — 컨트롤러 처리 불가 방지 */
+function retimeTooShortIntervals(tl, minInterval = 0.030) {
+  if (tl.length <= 1) return tl;
+  const result = [{ ...tl[0] }];
+  for (let i = 1; i < tl.length; i++) {
+    const prev = result[result.length - 1];
+    const curr = tl[i];
+    const gap  = curr.time - prev.time;
+    result.push(gap > 0 && gap < minInterval
+      ? { ...curr, time: parseFloat((prev.time + minInterval).toFixed(4)) }
+      : { ...curr });
+  }
+  return result;
+}
+
+/** 타임라인 전체 time에 offset 추가 */
+function shiftTimeline(tl, offset) {
+  return tl.map(kf => ({ ...kf, time: parseFloat((kf.time + offset).toFixed(4)) }));
+}
+
+/** 인트로 4초 타임라인 생성 */
+function createDrumIntroTimeline(firstDrumPose, preset) {
+  return [
+    { time: 0.0, angles: _arrToAngles(preset.neutralPose)    },
+    { time: 1.4, angles: _arrToAngles(preset.rearClearPose)  },
+    { time: 3.0, angles: _arrToAngles(preset.frontReadyPose) },
+    { time: 4.0, angles: firstDrumPose                       },
+  ];
+}
+
+/** 아웃트로 4초 타임라인 생성 (startTime = 드럼 끝 시간) */
+function createDrumOutroTimeline(lastDrumPose, preset, startTime) {
+  const s = startTime;
+  return [
+    { time: s + 0.0, angles: lastDrumPose                        },
+    { time: s + 1.0, angles: _arrToAngles(preset.frontReadyPose) },
+    { time: s + 2.6, angles: _arrToAngles(preset.rearClearPose)  },
+    { time: s + 4.0, angles: _arrToAngles(preset.neutralPose)    },
+  ];
+}
+
+/**
+ * buildTimelineWithIntroOutro(options)
+ * 재생·YAML 내보내기가 공유하는 최종 타임라인 생성
+ */
+function buildTimelineWithIntroOutro(options = {}) {
+  const { includeIntro = true, includeOutro = true,
+          introOutroPresetId = 'default' } = options;
+
+  const preset = (typeof INTRO_OUTRO_PRESETS !== 'undefined'
+    ? INTRO_OUTRO_PRESETS[introOutroPresetId]
+    : null) ?? {
+    neutralPose:    Array(14).fill(0),
+    rearClearPose:  [0.90,0,0.04,1.80,0,0,-1.35,-1.10,0,-0.04,1.80,0,0,1.35],
+    frontReadyPose: [-0.79,-0.04,0.01,1.54,0,0,-0.58,0.79,0.04,-0.01,1.54,0,0,0.58],
+  };
+
+  // 드럼 본편 (merged flat)
+  let drumTL = buildMergedKeyframes();
+  drumTL = removeHardResetPoint(drumTL);
+  drumTL = retimeTooShortIntervals(drumTL, 0.030);
+
+  let finalTL = [];
+
+  if (includeIntro) {
+    const firstPose = drumTL.length ? drumTL[0].angles : _arrToAngles(preset.neutralPose);
+    const intro     = createDrumIntroTimeline(firstPose, preset);
+    const shifted   = shiftTimeline(drumTL, 4.0);
+    // intro 마지막(t=4.0) == shifted 첫 번째(t=4.0) → 중복 제거
+    finalTL = [...intro, ...shifted.slice(1)];
+  } else {
+    finalTL = [...drumTL];
+  }
+
+  if (includeOutro) {
+    const lastPose = finalTL.length ? finalTL[finalTL.length - 1].angles
+                                    : _arrToAngles(preset.neutralPose);
+    const lastTime = finalTL.length ? finalTL[finalTL.length - 1].time : 0;
+    const outro    = createDrumOutroTimeline(lastPose, preset, lastTime);
+    // outro 첫 번째 == finalTL 마지막 → 중복 제거
+    finalTL = [...finalTL, ...outro.slice(1)];
+  }
+
+  return finalTL;
+}
+
+/** 재생·YAML 모두에 쓰이는 "flat 타임라인" 반환 */
+function buildFinalFlatTimeline() {
+  const inclIntro = document.getElementById('chk-intro')?.checked ?? true;
+  const inclOutro = document.getElementById('chk-outro')?.checked ?? true;
+  return (inclIntro || inclOutro)
+    ? buildTimelineWithIntroOutro({ includeIntro: inclIntro, includeOutro: inclOutro })
+    : buildMergedKeyframes();
+}
+
+/** playAnim 등에서 사용하는 _playKFs 포맷 반환
+ *  - intro/outro 없음 : { L, R, totalTime }  (기존 분리 트랙)
+ *  - intro/outro 있음 : { flat, totalTime }  (통합 flat 트랙)
+ */
+function buildFinalKeyframes() {
+  const inclIntro = document.getElementById('chk-intro')?.checked ?? true;
+  const inclOutro = document.getElementById('chk-outro')?.checked ?? true;
+  if (!inclIntro && !inclOutro) return buildKeyframes();
+  const flat = buildFinalFlatTimeline();
+  return { flat, totalTime: flat.length ? flat[flat.length - 1].time : 0 };
+}
+
+/** flat 타임라인 보간 (인트로/아웃트로용) */
+function interpolateAnglesFlat(t, flatKfs) {
+  if (!flatKfs.length) return { ...NEUTRAL };
+  if (flatKfs.length === 1) return { ...flatKfs[0].angles, L_grip: 0, R_grip: 0 };
+
+  let before = flatKfs[0], after = flatKfs[flatKfs.length - 1];
+  for (let i = 0; i < flatKfs.length - 1; i++) {
+    if (flatKfs[i].time <= t && flatKfs[i + 1].time >= t) {
+      before = flatKfs[i]; after = flatKfs[i + 1]; break;
+    }
+  }
+  if (before.time === after.time) return { ...before.angles, L_grip: 0, R_grip: 0 };
+
+  const s = smoothStep(clamp((t - before.time) / (after.time - before.time), 0, 1));
+  const out = { L_grip: 0, R_grip: 0 };
+  _JOINT_KEYS14.forEach(k => {
+    out[k] = (before.angles[k] ?? 0) + ((after.angles[k] ?? 0) - (before.angles[k] ?? 0)) * s;
+  });
+  return out;
+}
+
 window.playAnim = function () {
-  _playKFs = buildKeyframes();
+  _playKFs = buildFinalKeyframes();
   _playDur = _playKFs.totalTime;
   if (!timelineEvents.length) { alert('타임라인에 드럼 이벤트를 추가하세요.'); return; }
   document.getElementById('scrubber').max = _playDur;
@@ -1016,8 +1167,8 @@ function updateTimeLbl(t) {
 document.getElementById('scrubber').addEventListener('input', function () {
   const t = parseFloat(this.value);
   pauseOffset = t;
-  if (!_playKFs.L?.length) {
-    _playKFs = buildKeyframes();
+  if (!(_playKFs.L?.length ?? _playKFs.flat?.length)) {
+    _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
     this.max = _playDur;
   }
@@ -1226,7 +1377,7 @@ renderer.domElement.addEventListener('mouseup', () => {
     // 드래그 후 reach badge 갱신 + 키프레임 재빌드
     saveDrumKit();
     renderDrumList();
-    _playKFs = buildKeyframes();
+    _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
     _dragDrumId = null;
   }
@@ -1385,7 +1536,7 @@ function addEvent(drumId, beat) {
   if (sameIdx >= 0) {
     timelineEvents.splice(sameIdx, 1);
     renderTimeline();
-    _playKFs = buildKeyframes();
+    _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
     return;
   }
@@ -1396,7 +1547,7 @@ function addEvent(drumId, beat) {
   if (!drum || drum.type === 'kick') {
     timelineEvents.push({ drumId, beat });
     renderTimeline();
-    _playKFs = buildKeyframes();
+    _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
     return;
   }
@@ -1436,7 +1587,7 @@ function addEvent(drumId, beat) {
 
   timelineEvents.push({ drumId, beat });
   renderTimeline();
-  _playKFs = buildKeyframes();
+  _playKFs = buildFinalKeyframes();
   _playDur = _playKFs.totalTime;
 }
 
@@ -1445,7 +1596,7 @@ function removeEvent(drumId, beat) {
   if (idx >= 0) {
     timelineEvents.splice(idx, 1);
     renderTimeline();
-    _playKFs = buildKeyframes();
+    _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
   }
 }
@@ -1797,7 +1948,7 @@ window.autoGeneratePattern = function () {
   if (Ld.length) safeAdd(Ld[0].id, 1);
 
   renderTimeline();
-  _playKFs = buildKeyframes();
+  _playKFs = buildFinalKeyframes();
   _playDur  = _playKFs.totalTime;
   stopAnim();
   if (timelineEvents.length) playAnim();
@@ -1940,7 +2091,7 @@ window.applyPattern = function () {
   beatsPerBar = parseInt(document.getElementById('meter-sel').value) || 4;
   totalBars   = parseInt(document.getElementById('bars-inp').value)  || 4;
 
-  _playKFs = buildKeyframes();
+  _playKFs = buildFinalKeyframes();
   _playDur = _playKFs.totalTime;
   document.getElementById('scrubber').max = _playDur;
 
@@ -1984,6 +2135,21 @@ function updateTLInfo() {
 // ═══════════════════════════════════════════════════════════════
 loadDrumKit();
 window.addEventListener('resize', () => renderTimeline());
+
+// 인트로/아웃트로 체크박스 변경 → 재생 타임라인 즉시 갱신
+['chk-intro', 'chk-outro'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', () => {
+    _playKFs = buildFinalKeyframes();
+    _playDur = _playKFs.totalTime;
+    document.getElementById('scrubber').max = _playDur;
+    document.getElementById('scrubber').value = 0;
+    pauseOffset = 0;
+    const inclIntro = document.getElementById('chk-intro')?.checked ?? true;
+    const inclOutro = document.getElementById('chk-outro')?.checked ?? true;
+    const label = [inclIntro && '인트로', inclOutro && '아웃트로'].filter(Boolean).join('+');
+    setStatus(`타임라인 갱신: ${label || '드럼 본편만'} (${_playDur.toFixed(1)}s)`);
+  });
+});
 updateFK({ ...NEUTRAL });
 renderDrumList();
 renderSkinPresets();
