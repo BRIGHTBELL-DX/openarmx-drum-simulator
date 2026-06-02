@@ -1266,16 +1266,28 @@ window.loadAudioFile = function (input) {
   reader.readAsArrayBuffer(file);
 };
 
-function _playAudio(offset) {
+/** 인트로 구간(0 ~ introDur) 동안 음악 재생을 지연시키는 오디오 오프셋 */
+function _getAudioTimeOffset() {
+  const inclIntro = document.getElementById('chk-intro')?.checked ?? true;
+  return inclIntro ? 4.0 : 0.0;
+}
+
+function _playAudio(timelineOffset) {
   if (!_audioCtx || !_audioBuf) return;
   _stopAudio();
   if (_audioCtx.state === 'suspended') _audioCtx.resume();
+
+  const audioStart = _getAudioTimeOffset();
+  // 인트로 구간이면 시작 지연, 이미 지난 경우 파일 내 해당 위치부터 즉시 재생
+  const audioFilePos = Math.max(0, timelineOffset - audioStart);
+  const startDelay   = Math.max(0, audioStart - timelineOffset);
+
   _audioSrc = _audioCtx.createBufferSource();
   _audioSrc.buffer = _audioBuf;
   _audioSrc.connect(_audioCtx.destination);
-  _audioPlayOff   = clamp(offset, 0, _audioBuf.duration);
-  _audioStartCtxT = _audioCtx.currentTime;
-  _audioSrc.start(0, _audioPlayOff);
+  _audioPlayOff   = clamp(audioFilePos, 0, _audioBuf.duration);
+  _audioStartCtxT = _audioCtx.currentTime + startDelay;
+  _audioSrc.start(_audioCtx.currentTime + startDelay, _audioPlayOff);
 }
 
 function _pauseAudio() {
