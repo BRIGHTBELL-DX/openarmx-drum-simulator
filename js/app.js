@@ -501,8 +501,10 @@ function _audioBufferToWav(buffer) {
 window.exportAudio = async function () {
   if (!timelineEvents.length) { alert('타임라인에 드럼 이벤트를 추가하세요.'); return; }
 
-  const totalDur = _playDur || 0;
-  if (totalDur <= 0) { alert('▶ 적용 & 재생을 먼저 눌러주세요.'); return; }
+  // 체크박스 상태에 따라 항상 최신 길이 계산 (재생 없이도 동작)
+  const latestKFs = buildFinalKeyframes();
+  const totalDur  = latestKFs.totalTime || 0;
+  if (totalDur <= 0) { alert('타임라인에 드럼 이벤트를 추가하세요.'); return; }
 
   setStatus('🎵 오디오 렌더링 중... (잠시 대기)');
   await new Promise(r => setTimeout(r, 30)); // UI 업데이트 대기
