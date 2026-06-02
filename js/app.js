@@ -1065,10 +1065,16 @@ function buildTimelineWithIntroOutro(options = {}) {
   let finalTL = [];
 
   if (includeIntro) {
-    const firstPose = drumTL.length ? drumTL[0].angles : _arrToAngles(preset.neutralPose);
-    const intro     = createDrumIntroTimeline(firstPose, preset);
-    const shifted   = shiftTimeline(drumTL, 4.0);
-    // intro 마지막(t=4.0) == shifted 첫 번째(t=4.0) → 중복 제거
+    // firstPose: 첫 번째 '실제 드럼 동작' 포즈 (NEUTRAL 제외)
+    // drumTL[0]은 보통 NEUTRAL(all 0) → 이걸 쓰면 frontReadyPose → NEUTRAL로 팔이 내려가는 문제 발생
+    const firstNonNeutral = drumTL.find(kf =>
+      _JOINT_KEYS14.some(k => Math.abs(kf.angles[k] ?? 0) > 0.01)
+    );
+    const firstPose = firstNonNeutral?.angles ?? _arrToAngles(preset.frontReadyPose);
+
+    const intro   = createDrumIntroTimeline(firstPose, preset);
+    const shifted = shiftTimeline(drumTL, 4.0);
+    // shifted[0] = NEUTRAL at t=4.0 → intro 마지막이 firstPose로 대체하므로 제거(slice(1))
     finalTL = [...intro, ...shifted.slice(1)];
   } else {
     finalTL = [...drumTL];
