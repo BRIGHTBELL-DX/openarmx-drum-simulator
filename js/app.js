@@ -1035,23 +1035,63 @@ function shiftTimeline(tl, offset) {
 }
 
 /** 인트로 4초 타임라인 생성 */
+/** frontReadyPose에서 J4(팔꿈치) 미세 굽힘 — "숨쉬기" 효과 */
+function _breathePose(base, amp) {
+  const v = { ...base };
+  if (v.L4 !== undefined) v.L4 = parseFloat((v.L4 + amp).toFixed(4));
+  if (v.R4 !== undefined) v.R4 = parseFloat((v.R4 + amp).toFixed(4));
+  return v;
+}
+
+/**
+ * 인트로 4초 구조 (재설계)
+ *  0.0s → neutral
+ *  1.0s → rearClearPose    (빠른 경로 확보)
+ *  2.0s → frontReadyPose   (연주 준비)
+ *  ─── 이후 숨쉬기 유지 ────────────────
+ *  2.5s → breathe in  (+0.06 rad)
+ *  3.0s → breathe out (ready)
+ *  3.4s → breathe in  (+0.05 rad)
+ *  3.7s → breathe out → 정지
+ *  4.0s → firstDrumPose  (드럼 시작!)
+ */
 function createDrumIntroTimeline(firstDrumPose, preset) {
+  const nu = _arrToAngles(preset.neutralPose);
+  const rc = _arrToAngles(preset.rearClearPose);
+  const fp = _arrToAngles(preset.frontReadyPose);
   return [
-    { time: 0.0, angles: _arrToAngles(preset.neutralPose)    },
-    { time: 1.4, angles: _arrToAngles(preset.rearClearPose)  },
-    { time: 3.0, angles: _arrToAngles(preset.frontReadyPose) },
-    { time: 4.0, angles: firstDrumPose                       },
+    { time: 0.0, angles: nu                        },
+    { time: 1.0, angles: rc                        },  // 빠른 후퇴
+    { time: 2.0, angles: fp                        },  // 준비 완료
+    { time: 2.5, angles: _breathePose(fp, +0.06)  },  // 숨 들이쉬기 1
+    { time: 3.0, angles: fp                        },  // 숨 내쉬기 1
+    { time: 3.4, angles: _breathePose(fp, +0.05)  },  // 숨 들이쉬기 2
+    { time: 3.7, angles: fp                        },  // 숨 내쉬기 2 → 정지
+    { time: 4.0, angles: firstDrumPose             },  // ▶ 드럼 시작
   ];
 }
 
-/** 아웃트로 4초 타임라인 생성 (startTime = 드럼 끝 시간) */
+/**
+ * 아웃트로 4초 구조 (재설계)
+ *  +0.0s → lastDrumPose   (마지막 드럼 자세)
+ *  +0.8s → frontReadyPose (준비 자세 복귀)
+ *  +1.3s → breathe in
+ *  +1.8s → frontReadyPose (숨 내쉬기 → 정지)
+ *  +2.6s → rearClearPose  (뒤로 물러남)
+ *  +4.0s → neutralPose    (완전 복귀)
+ */
 function createDrumOutroTimeline(lastDrumPose, preset, startTime) {
-  const s = startTime;
+  const s  = startTime;
+  const fp = _arrToAngles(preset.frontReadyPose);
+  const rc = _arrToAngles(preset.rearClearPose);
+  const nu = _arrToAngles(preset.neutralPose);
   return [
-    { time: s + 0.0, angles: lastDrumPose                        },
-    { time: s + 1.0, angles: _arrToAngles(preset.frontReadyPose) },
-    { time: s + 2.6, angles: _arrToAngles(preset.rearClearPose)  },
-    { time: s + 4.0, angles: _arrToAngles(preset.neutralPose)    },
+    { time: s + 0.0, angles: lastDrumPose              },
+    { time: s + 0.8, angles: fp                         },  // 준비 자세 복귀
+    { time: s + 1.3, angles: _breathePose(fp, +0.05)   },  // 숨쉬기
+    { time: s + 1.8, angles: fp                         },  // 정지
+    { time: s + 2.6, angles: rc                         },  // 후퇴
+    { time: s + 4.0, angles: nu                         },  // 중립 복귀
   ];
 }
 
