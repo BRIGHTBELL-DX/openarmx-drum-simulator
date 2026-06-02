@@ -1206,11 +1206,12 @@ function animate() {
     updateTimeLbl(t);
     _updatePlayhead(t);
 
-    const beatDur = 60 / bpm;
+    const beatDur   = 60 / bpm;
+    const introOff  = _getAudioTimeOffset(); // 인트로 ON → 4.0s, OFF → 0
     timelineEvents.forEach(evt => {
       const drum = drumKit.find(d => d.id === evt.drumId);
       if (!drum) return;
-      const hitT    = (evt.beat - 1) * beatDur;
+      const hitT    = (evt.beat - 1) * beatDur + introOff; // ← 인트로 오프셋 반영
       const typeInfo = DRUM_TYPES[drum.type];
       const inHit   = t >= hitT && t < hitT + (typeInfo?.rebDur || 0.1);
       const key     = `${evt.drumId}_${evt.beat}`;
