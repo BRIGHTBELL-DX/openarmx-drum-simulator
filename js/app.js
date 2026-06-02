@@ -470,6 +470,87 @@ window.exportYAML = function () {
 };
 
 // ═══════════════════════════════════════════════════════════════
+//  비트 오디오 내보내기 (WAV — OfflineAudioContext 렌더링)
+// ═══════════════════════════════════════════════════════════════
+
+/** AudioBuffer → 16-bit PCM WAV Blob */
+function _audioBufferToWav(buffer) {
+  const numCh   = buffer.numberOfChannels;
+  const sr      = buffer.sampleRate;
+  const len     = buffer.length;
+  const bps     = 2; // 16-bit
+  const dataLen = len * numCh * bps;
+  const ab      = new ArrayBuffer(44 + dataLen);
+  const v       = new DataView(ab);
+  const s       = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  s(0,'RIFF'); v.setUint32(4, 36 + dataLen, true); s(8,'WAVE');
+  s(12,'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, numCh, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * numCh * bps, true); v.setUint16(32, numCh * bps, true);
+  v.setUint16(34, 16, true); s(36,'data'); v.setUint32(40, dataLen, true);
+  let off = 44;
+  for (let i = 0; i < len; i++) {
+    for (let ch = 0; ch < numCh; ch++) {
+      const s16 = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i])) * 0x7FFF;
+      v.setInt16(off, s16, true); off += 2;
+    }
+  }
+  return new Blob([ab], { type: 'audio/wav' });
+}
+
+window.exportAudio = async function () {
+  if (!timelineEvents.length) { alert('타임라인에 드럼 이벤트를 추가하세요.'); return; }
+
+  const totalDur = _playDur || 0;
+  if (totalDur <= 0) { alert('▶ 적용 & 재생을 먼저 눌러주세요.'); return; }
+
+  setStatus('🎵 오디오 렌더링 중... (잠시 대기)');
+  await new Promise(r => setTimeout(r, 30)); // UI 업데이트 대기
+
+  try {
+    const SR   = 44100;
+    const ctx  = new OfflineAudioContext(2, Math.ceil(totalDur * SR), SR);
+    const bd   = 60 / bpm;
+    const iOff = _getAudioTimeOffset(); // 인트로 오프셋
+
+    // ── 드럼 합성음 스케줄 ─────────────────────────────────────
+    timelineEvents.forEach(evt => {
+      const drum = drumKit.find(d => d.id === evt.drumId);
+      if (!drum) return;
+      const hitT = (evt.beat - 1) * bd + iOff;
+      if (hitT < 0 || hitT >= totalDur) return;
+      const fn = _drumSounds[drum.type] || _drumSounds.tom_m;
+      fn(hitT, ctx);
+    });
+
+    // ── 배경 음악 믹스 (로드된 경우) ──────────────────────────
+    if (_audioBuf) {
+      const src = ctx.createBufferSource();
+      src.buffer = _audioBuf;
+      // 볼륨 살짝 낮춰서 드럼과 밸런스
+      const gain = ctx.createGain(); gain.gain.value = 0.80;
+      src.connect(gain); gain.connect(ctx.destination);
+      const startAt  = Math.max(0, iOff);
+      const audioPos = Math.max(0, 0); // 음악 파일 시작 위치
+      src.start(startAt, audioPos);
+    }
+
+    const rendered = await ctx.startRendering();
+    const wav      = _audioBufferToWav(rendered);
+    const ts       = new Date().toISOString().replace(/[-:T.]/g,'').slice(0,15);
+    const a        = document.createElement('a');
+    a.href         = URL.createObjectURL(wav);
+    a.download     = `drum_beat_${ts}.wav`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+
+    setStatus(`🎵 오디오 내보내기 완료 — ${totalDur.toFixed(1)}s WAV`);
+  } catch (e) {
+    setStatus('오디오 렌더링 실패: ' + e.message);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
 //  검증
 // ═══════════════════════════════════════════════════════════════
 window.validatePattern = function () {

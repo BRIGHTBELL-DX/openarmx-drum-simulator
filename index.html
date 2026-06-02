@@ -21,6 +21,7 @@
     <button id="apply-btn" onclick="applyPattern()">▶ 적용 &amp; 재생</button>
     <button class="btn-validate" onclick="validatePattern()">✓ 검증</button>
     <button class="btn-export" onclick="exportYAML()">📥 YAML 내보내기</button>
+    <button class="btn-export btn-export-audio" onclick="exportAudio()">🎵 비트 WAV 내보내기</button>
     <label class="audio-label" title="MP3 / WAV / OGG 파일을 로드하면 재생 시 함께 흘러나옵니다">
       🎵 음악 로드
       <input type="file" id="audio-file" accept="audio/*" style="display:none" onchange="loadAudioFile(this)">

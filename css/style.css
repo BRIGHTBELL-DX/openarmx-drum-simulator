@@ -81,6 +81,8 @@ body {
 #apply-btn:hover { background:#1a5028; }
 .btn-export { background:#0a3518 !important; border-color:#1a7040 !important; color:#50e890 !important; }
 .btn-export:hover { background:#105020 !important; }
+.btn-export-audio { background:#0a2838 !important; border-color:#1a5070 !important; color:#50c8e8 !important; }
+.btn-export-audio:hover { background:#103848 !important; }
 .btn-validate { background:#2a1a50 !important; border-color:#5030a0 !important; color:#cc99ff !important; }
 .btn-validate:hover { background:#3a2870 !important; }
 
