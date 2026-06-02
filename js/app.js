@@ -296,23 +296,37 @@ function computeStrikePose(drum, phase) {
 // ═══════════════════════════════════════════════════════════════
 //  타임라인 → 키프레임 빌드 (L·R 팔 완전 분리 트랙)
 // ═══════════════════════════════════════════════════════════════
+/** 프리셋 frontReadyPose → L/R 각도 객체로 분리
+ *  이 포즈를 시작·끝 기준으로 사용해 팔이 드럼 앞에서 대기하도록 보장 */
+function _getReadyPoses() {
+  const p = (typeof INTRO_OUTRO_PRESETS !== 'undefined'
+    ? INTRO_OUTRO_PRESETS.default?.frontReadyPose : null)
+    ?? [-0.79,-0.04,0.01,1.54,0,0,-0.58, 0.79,0.04,-0.01,1.54,0,0,0.58];
+  return {
+    L: { L1:p[0], L2:p[1], L3:p[2], L4:p[3], L5:p[4], L6:p[5], L7:p[6] },
+    R: { R1:p[7], R2:p[8], R3:p[9], R4:p[10], R5:p[11], R6:p[12], R7:p[13] },
+  };
+}
+
 function buildKeyframes() {
   const beatDur    = 60 / bpm;
   const totalBeats = totalBars * beatsPerBar;
   const totalTime  = parseFloat((totalBeats * beatDur).toFixed(3));
   const preDur     = parseFloat(Math.max(0.12, Math.min(0.32, beatDur * 0.38)).toFixed(3));
 
-  const L_KEYS    = ['L1','L2','L3','L4','L5','L6','L7'];
-  const R_KEYS    = ['R1','R2','R3','R4','R5','R6','R7'];
-  const NEUTRAL_L = { L1:0, L2:0, L3:0, L4:0, L5:0, L6:0, L7:0 };
-  const NEUTRAL_R = { R1:0, R2:0, R3:0, R4:0, R5:0, R6:0, R7:0 };
+  const L_KEYS = ['L1','L2','L3','L4','L5','L6','L7'];
+  const R_KEYS = ['R1','R2','R3','R4','R5','R6','R7'];
 
-  // 왼팔·오른팔 키프레임 트랙 완전 분리 — 서로의 값을 NEUTRAL로 강제하지 않음
+  // 시작·끝 기준 포즈: NEUTRAL(joints=0) 대신 frontReadyPose 사용
+  // → 이벤트가 늦게 시작하는 팔도 드럼 앞 준비 자세를 유지하다 자연스럽게 이동
+  const { L: READY_L, R: READY_R } = _getReadyPoses();
+
+  // 왼팔·오른팔 키프레임 트랙 완전 분리
   const L_poseMap = new Map();
   const R_poseMap = new Map();
 
-  L_poseMap.set('0.000', { ...NEUTRAL_L });
-  R_poseMap.set('0.000', { ...NEUTRAL_R });
+  L_poseMap.set('0.000', { ...READY_L });
+  R_poseMap.set('0.000', { ...READY_R });
 
   // 팔별 이벤트를 시간순 정렬 — rebound/raise 겹침 감지에 필요
   const armEvts = { L: [], R: [] };
@@ -357,8 +371,8 @@ function buildKeyframes() {
     });
   });
 
-  L_poseMap.set(totalTime.toFixed(3), { ...NEUTRAL_L });
-  R_poseMap.set(totalTime.toFixed(3), { ...NEUTRAL_R });
+  L_poseMap.set(totalTime.toFixed(3), { ...READY_L });
+  R_poseMap.set(totalTime.toFixed(3), { ...READY_R });
 
   const toArray = (map) =>
     Array.from(map.entries())
