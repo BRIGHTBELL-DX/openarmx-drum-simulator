@@ -398,40 +398,23 @@ function buildKeyframes() {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound'), sideKeys);
       }
 
-      // ── 드럼 스트로크 아크: 빠른 반동 → 준비 대기 → 다음 강타 ───────
-      // 박자 간격과 무관하게 타격감 유지:
-      //   1) peak : 타격 직후 빠르게 최고점 (0.20s 이내 or 간격의 28%)
-      //   2) settle: 최고점 후 즉시 준비 자세로 복귀 → 대기
-      //   3) 다음 raise가 오면 빠르게 하강 → 강타
+      // ── V자 arc via-point: 빠른 연타 포함 모든 연속 타격에 무조건 적용 ──
+      // peakT = 두 strike 시각의 정중앙
+      // → 중간 지점에서 J4 최고점, 이후 목적지로 자연스럽게 하강
       if (next) {
-        const gap       = next.t - t;
-        const posA      = computeStrikePose(drum,      'rebound');
-        const posB      = computeStrikePose(next.drum, 'raise');
-        const readyPose = arm === 'L' ? READY_L : READY_R;
-
-        // 반동 직후 빠르게 최고점 도달
-        const peakBase  = includeRebound ? reboundT : t;
-        const peakT     = parseFloat(Math.max(
-          peakBase + 0.02,
-          Math.min(peakBase + 0.20, t + gap * 0.28, nextRaiseT - 0.06)
-        ).toFixed(3));
-
-        const peak = {};
+        const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
+        const posA  = computeStrikePose(drum,      'rebound');
+        const posB  = computeStrikePose(next.drum, 'raise');
+        const peak  = {};
         sideKeys.forEach(k => {
-          // rebound 포즈 기준으로 올라감 (next 쪽보단 현재 반동 쪽 중심)
-          let v = (posA[k] ?? 0) * 0.65 + (posB[k] ?? 0) * 0.35;
+          const a = posA[k] ?? 0;
+          const b = posB[k] ?? 0;
+          let v = (a + b) / 2;
+          // J4 팔꿈치: arc 최고점 — raise/rebound 양쪽보다 높게 유지
           if (k.endsWith('4')) v = clamp(v + 0.42, 0.10, 1.70);
           peak[k] = v;
         });
         addPose(poseMap, peakT, peak, sideKeys);
-
-        // 최고점 이후 준비 자세로 빠르게 복귀 → 다음 박자까지 대기
-        const settleT = parseFloat(Math.min(
-          peakT + 0.22, t + gap * 0.52, nextRaiseT - 0.04
-        ).toFixed(3));
-        if (settleT > peakT + 0.04 && settleT < nextRaiseT - 0.03) {
-          addPose(poseMap, settleT, readyPose, sideKeys);
-        }
       }
     });
   });
