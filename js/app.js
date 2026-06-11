@@ -376,6 +376,24 @@ function buildKeyframes() {
     const poseMap  = arm === 'L' ? L_poseMap : R_poseMap;
     const sideKeys = arm === 'L' ? L_KEYS    : R_KEYS;
 
+    // 첫 타격이 0.30초 이내면 초기 준비 자세를 사전 설정
+    // → J1: 첫 드럼 방향으로 50% 사전 회전 (큰 J1 스윙 방지)
+    // → J4: +0.32 상승 (TCP가 첫 드럼 위에 위치 → 위에서 내려치는 접근)
+    if (armEvts[arm].length > 0) {
+      const { drum: fd, t: ft } = armEvts[arm][0];
+      if (ft < 0.30) {
+        const raisePose  = computeStrikePose(fd, 'raise');
+        const initPose   = arm === 'L' ? { ...READY_L } : { ...READY_R };
+        sideKeys.forEach(k => {
+          if (k.endsWith('1'))
+            initPose[k] = (initPose[k] + raisePose[k]) * 0.5;
+          else if (k.endsWith('4'))
+            initPose[k] = clamp(initPose[k] + 0.32, 0.10, 1.70);
+        });
+        poseMap.set('0.000', initPose);
+      }
+    }
+
     armEvts[arm].forEach(({ drum, t }, idx) => {
       const typeInfo = DRUM_TYPES[drum.type];
       const hasPrev  = idx > 0;  // 이전 타격이 있으면 raise 생략 → via-point가 대체
