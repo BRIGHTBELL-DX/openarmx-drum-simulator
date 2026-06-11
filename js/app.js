@@ -1196,7 +1196,7 @@ function createDrumIntroTimeline(firstDrumPose, preset) {
   // t=3.85에서 팔이 spread-up 상태, t=4.00에서 내려치며 첫 박 시작
   const preLift = { ...firstDrumPose };
   Object.keys(preLift).forEach(k => {
-    if (k.endsWith('4')) preLift[k] = clamp((preLift[k] ?? 0) + 0.38, 0.10, 1.70);
+    if (k.endsWith('4')) preLift[k] = clamp((preLift[k] ?? 0) + 0.58, 0.10, 1.70);
   });
 
   return [
