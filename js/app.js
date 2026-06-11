@@ -294,10 +294,13 @@ function computeStrikePose(drum, phase) {
 
   // ── 드럼 스트로크 호(arc) 보정 ──────────────────────────────────
   // raise : J1을 바깥쪽으로 열어 "위·옆에서 내려치는" 스윙 궤적 생성
-  //          L팔 -0.30 / R팔 +0.30
   // rebound: 타격 후 J1이 다시 약간 바깥으로 튀어나오며 자연스러운 반동
-  //          L팔 -0.15 / R팔 +0.15
-  const arcJ1 = { raise: 0.30, rebound: 0.15 }[phase] ?? 0;
+  // 측면 드럼(하이햇 등)은 IK J1이 이미 크게 벌어져 있으므로
+  // arc를 줄여 시작 자세→raise 간 튐 현상 방지
+  const lateralAbs  = Math.abs(drum.pos.y);
+  const arcScale    = Math.max(0, 1 - lateralAbs / 0.45);
+  const arcJ1Base   = { raise: 0.30, rebound: 0.15 }[phase] ?? 0;
+  const arcJ1       = arcJ1Base * arcScale;
   if (arcJ1 > 0) {
     if (s === 'L') pose.L1 = clamp(pose.L1 - arcJ1, -2.0, 2.0);
     else           pose.R1 = clamp(pose.R1 + arcJ1, -2.0, 2.0);
@@ -380,6 +383,25 @@ function buildKeyframes() {
       addPose(poseMap, t,      computeStrikePose(drum, 'strike'), sideKeys);
       if (includeRebound) {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound'), sideKeys);
+      }
+
+      // ── V자 arc via-point ────────────────────────────────────────
+      // rebound와 다음 raise 사이 중간에 peak 키프레임을 삽입
+      // → 두 드럼 사이 중간 지점에서 팔이 최고점이 되는 포물선 궤적
+      if (next && includeRebound && nextRaiseT - reboundT > 0.05) {
+        const peakT  = parseFloat(((reboundT + nextRaiseT) / 2).toFixed(3));
+        const posA   = computeStrikePose(drum,      'rebound');
+        const posB   = computeStrikePose(next.drum, 'raise');
+        const peak   = {};
+        sideKeys.forEach(k => {
+          const a = posA[k] ?? 0;
+          const b = posB[k] ?? 0;
+          let v = (a + b) / 2;
+          // J4 팔꿈치: 중간 지점에서 arc 최고점으로 더 굽힘
+          if (k.endsWith('4')) v = clamp(v + 0.38, 0.10, 1.70);
+          peak[k] = v;
+        });
+        addPose(poseMap, peakT, peak, sideKeys);
       }
     });
   });
