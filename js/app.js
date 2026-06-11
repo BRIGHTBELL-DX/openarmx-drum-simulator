@@ -285,6 +285,16 @@ function computeStrikePose(drum, phase) {
     }
   }
 
+  // 측면 드럼(하이햇·크래시·라이드 등): J2 어깨를 옆으로 펼치도록 강제
+  // → J2≈0이면 팔이 안쪽으로 수렴해 충돌 위험·어색한 자세 발생
+  // → L팔: J2 최대 -0.40 (반드시 옆으로 벌려짐)
+  //    R팔: J2 최소 +0.40 (반드시 옆으로 벌려짐)
+  const lateralY = (s === 'L' ? 1 : -1) * drum.pos.y;
+  if (lateralY > 0.18) {
+    if (s === 'L') extraLimits['L2'] = [-1.65, -0.40];
+    else           extraLimits['R2'] = [ 0.40,  1.65];
+  }
+
   const solved = _solveIK(s, target, init, j7,
                            Object.keys(extraLimits).length ? extraLimits : undefined);
 
