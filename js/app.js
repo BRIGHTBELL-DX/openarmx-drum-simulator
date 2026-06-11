@@ -399,13 +399,8 @@ function buildKeyframes() {
       // 첫 타격만 raise 추가 — 이후 타격은 via-point가 상승 역할 담당
       // (raise를 남기면 목적지 직전에 다시 올라가 목적지가 최고점처럼 보임)
       if (!hasPrev) {
-        // raise 직전까지 preLift 유지 — 인트로 종료 높이에서 바로 이동 시작
-        // (hold가 없으면 다른 팔 이벤트 시각에 이 팔이 보간되어 drift 발생)
-        const PRELIFT = arm === 'L' ? preLiftL : preLiftR;
-        const holdT = parseFloat(Math.max(0.001, raiseT - 0.08).toFixed(3));
-        if (holdT < raiseT) {
-          addPose(poseMap, holdT, { ...PRELIFT }, sideKeys);
-        }
+        // preLift(t=0)에서 raise로 자연스럽게 sweep — 별도 hold 없이
+        // preLift가 시작 포즈이므로 보간 drift 자체가 자연스러운 접근 동작이 됨
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'), sideKeys);
       }
       addPose(poseMap, t, computeStrikePose(drum, 'strike'), sideKeys);
