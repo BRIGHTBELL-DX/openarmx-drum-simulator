@@ -343,16 +343,24 @@ function buildKeyframes() {
   const L_KEYS = ['L1','L2','L3','L4','L5','L6','L7'];
   const R_KEYS = ['R1','R2','R3','R4','R5','R6','R7'];
 
-  // 시작·끝 기준 포즈: NEUTRAL(joints=0) 대신 frontReadyPose 사용
-  // → 이벤트가 늦게 시작하는 팔도 드럼 앞 준비 자세를 유지하다 자연스럽게 이동
   const { L: READY_L, R: READY_R } = _getReadyPoses();
+
+  // preLift: READY + J4 +0.58 (최대 1.70) — 인트로 preLift와 동일 높이
+  // → 인트로 t=4.00 이후 이벤트가 없는 팔이 즉시 내려오지 않도록
+  const preLiftL = Object.fromEntries(
+    Object.entries(READY_L).map(([k, v]) => [k, k.endsWith('4') ? clamp(v + 0.58, 0.10, 1.70) : v])
+  );
+  const preLiftR = Object.fromEntries(
+    Object.entries(READY_R).map(([k, v]) => [k, k.endsWith('4') ? clamp(v + 0.58, 0.10, 1.70) : v])
+  );
 
   // 왼팔·오른팔 키프레임 트랙 완전 분리
   const L_poseMap = new Map();
   const R_poseMap = new Map();
 
-  L_poseMap.set('0.000', { ...READY_L });
-  R_poseMap.set('0.000', { ...READY_R });
+  // 시작 포즈를 preLift 레벨로 설정 (인트로 종료 포즈와 연속성 유지)
+  L_poseMap.set('0.000', { ...preLiftL });
+  R_poseMap.set('0.000', { ...preLiftR });
 
   // 팔별 이벤트를 시간순 정렬 — rebound/raise 겹침 감지에 필요
   const armEvts = { L: [], R: [] };
@@ -391,12 +399,12 @@ function buildKeyframes() {
       // 첫 타격만 raise 추가 — 이후 타격은 via-point가 상승 역할 담당
       // (raise를 남기면 목적지 직전에 다시 올라가 목적지가 최고점처럼 보임)
       if (!hasPrev) {
-        // raise 직전까지 ready 자세 유지 — merged flat 타임라인에서 다른 팔의
-        // 이벤트 시각에 이 팔 값을 보간할 때 early drift가 발생하는 것을 방지
-        const READY = arm === 'L' ? READY_L : READY_R;
+        // raise 직전까지 preLift 유지 — 인트로 종료 높이에서 바로 이동 시작
+        // (hold가 없으면 다른 팔 이벤트 시각에 이 팔이 보간되어 drift 발생)
+        const PRELIFT = arm === 'L' ? preLiftL : preLiftR;
         const holdT = parseFloat(Math.max(0.001, raiseT - 0.08).toFixed(3));
         if (holdT < raiseT) {
-          addPose(poseMap, holdT, { ...READY }, sideKeys);
+          addPose(poseMap, holdT, { ...PRELIFT }, sideKeys);
         }
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'), sideKeys);
       }
