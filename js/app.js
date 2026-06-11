@@ -391,6 +391,13 @@ function buildKeyframes() {
       // 첫 타격만 raise 추가 — 이후 타격은 via-point가 상승 역할 담당
       // (raise를 남기면 목적지 직전에 다시 올라가 목적지가 최고점처럼 보임)
       if (!hasPrev) {
+        // raise 직전까지 ready 자세 유지 — merged flat 타임라인에서 다른 팔의
+        // 이벤트 시각에 이 팔 값을 보간할 때 early drift가 발생하는 것을 방지
+        const READY = arm === 'L' ? READY_L : READY_R;
+        const holdT = parseFloat(Math.max(0.001, raiseT - 0.08).toFixed(3));
+        if (holdT < raiseT) {
+          addPose(poseMap, holdT, { ...READY }, sideKeys);
+        }
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'), sideKeys);
       }
       addPose(poseMap, t, computeStrikePose(drum, 'strike'), sideKeys);
