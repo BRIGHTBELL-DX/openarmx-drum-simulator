@@ -378,37 +378,40 @@ function buildKeyframes() {
 
     armEvts[arm].forEach(({ drum, t }, idx) => {
       const typeInfo = DRUM_TYPES[drum.type];
+      const hasPrev  = idx > 0;  // 이전 타격이 있으면 raise 생략 → via-point가 대체
       const raiseT   = parseFloat(Math.max(0.001, t - preDur).toFixed(3));
       const reboundT = parseFloat((t + typeInfo.rebDur).toFixed(3));
 
-      // 다음 이벤트 raise보다 이 rebound가 늦으면 → rebound 생략
-      // (팔이 rebound 없이 바로 다음 raise 위치로 자연스럽게 이동)
       const next = armEvts[arm][idx + 1];
       const nextRaiseT = next
         ? parseFloat(Math.max(0.001, next.t - preDur).toFixed(3))
         : Infinity;
       const includeRebound = reboundT <= nextRaiseT;
 
-      addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'),  sideKeys);
-      addPose(poseMap, t,      computeStrikePose(drum, 'strike'), sideKeys);
+      // 첫 타격만 raise 추가 — 이후 타격은 via-point가 상승 역할 담당
+      // (raise를 남기면 목적지 직전에 다시 올라가 목적지가 최고점처럼 보임)
+      if (!hasPrev) {
+        addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'), sideKeys);
+      }
+      addPose(poseMap, t, computeStrikePose(drum, 'strike'), sideKeys);
       if (includeRebound) {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound'), sideKeys);
       }
 
-      // ── V자 arc via-point ────────────────────────────────────────
-      // rebound와 다음 raise 사이 중간에 peak 키프레임을 삽입
-      // → 두 드럼 사이 중간 지점에서 팔이 최고점이 되는 포물선 궤적
-      if (next && includeRebound && nextRaiseT - reboundT > 0.05) {
-        const peakT  = parseFloat(((reboundT + nextRaiseT) / 2).toFixed(3));
-        const posA   = computeStrikePose(drum,      'rebound');
-        const posB   = computeStrikePose(next.drum, 'raise');
-        const peak   = {};
+      // ── V자 arc via-point: 빠른 연타 포함 모든 연속 타격에 무조건 적용 ──
+      // peakT = 두 strike 시각의 정중앙
+      // → 중간 지점에서 J4 최고점, 이후 목적지로 자연스럽게 하강
+      if (next) {
+        const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
+        const posA  = computeStrikePose(drum,      'rebound');
+        const posB  = computeStrikePose(next.drum, 'raise');
+        const peak  = {};
         sideKeys.forEach(k => {
           const a = posA[k] ?? 0;
           const b = posB[k] ?? 0;
           let v = (a + b) / 2;
-          // J4 팔꿈치: 중간 지점에서 arc 최고점으로 더 굽힘
-          if (k.endsWith('4')) v = clamp(v + 0.38, 0.10, 1.70);
+          // J4 팔꿈치: arc 최고점 — raise/rebound 양쪽보다 높게 유지
+          if (k.endsWith('4')) v = clamp(v + 0.42, 0.10, 1.70);
           peak[k] = v;
         });
         addPose(poseMap, peakT, peak, sideKeys);
