@@ -1364,10 +1364,11 @@ document.getElementById('scrubber').addEventListener('input', function () {
     _playDur = _playKFs.totalTime;
     this.max = _playDur;
   }
+  // 재생 중 seek: startWall을 새 위치 기준으로 재계산 → 애니메이션 루프가 덮어쓰지 않음
+  if (isPlaying) startWall = performance.now() - t * 1000;
   updateFK(interpolateAngles(t, _playKFs));
   updateTimeLbl(t);
   _updatePlayhead(t);
-  // 오디오 위치 동기화
   if (isPlaying) _playAudio(t);
   else _audioPlayOff = t;
 });
