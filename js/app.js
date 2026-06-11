@@ -290,6 +290,18 @@ function computeStrikePose(drum, phase) {
   // 포즈 조립 (해당 팔만 — buildKeyframes에서 L/R 트랙 분리)
   const pose = { ...NEUTRAL };
   [1,2,3,4,5,6,7].forEach(i => { pose[`${s}${i}`] = solved[`${s}${i}`]; });
+
+  // ── 드럼 스트로크 호(arc) 보정 ──────────────────────────────────
+  // raise : J1을 바깥쪽으로 열어 "위·옆에서 내려치는" 스윙 궤적 생성
+  //          L팔 -0.30 / R팔 +0.30
+  // rebound: 타격 후 J1이 다시 약간 바깥으로 튀어나오며 자연스러운 반동
+  //          L팔 -0.15 / R팔 +0.15
+  const arcJ1 = { raise: 0.30, rebound: 0.15 }[phase] ?? 0;
+  if (arcJ1 > 0) {
+    if (s === 'L') pose.L1 = clamp(pose.L1 - arcJ1, -2.0, 2.0);
+    else           pose.R1 = clamp(pose.R1 + arcJ1, -2.0, 2.0);
+  }
+
   return pose;
 }
 
