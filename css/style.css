@@ -104,6 +104,55 @@ body {
   overflow: hidden;
   flex-shrink: 0;
 }
+
+/* ── 스트로크 튜닝 패널 ── */
+#stroke-panel {
+  width: 210px;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  order: 3;
+}
+.stroke-sliders {
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.stroke-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stroke-label {
+  font-size: 11px;
+  color: #aabbdd;
+  font-weight: 600;
+}
+.stroke-joint {
+  font-size: 10px;
+  color: #5577bb;
+  font-weight: 400;
+}
+.stroke-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stroke-slider {
+  flex: 1;
+  accent-color: #4488ff;
+}
+.stroke-val {
+  font-size: 11px;
+  color: #88aaee;
+  font-family: monospace;
+  min-width: 36px;
+  text-align: right;
+}
 .panel-header {
   padding: 9px 12px;
   font-size: 12px;

@@ -71,7 +71,9 @@ let timelineEvents = [];
 let bpm = 120;
 let beatsPerBar = 4;
 let totalBars = 8;
-let stickJ7Offset = 0;   // 스틱 J7 각도 보정 (rad) — 양수 = 더 강하게 내려치는 방향
+let stickJ7Offset  = 0;  // 손목 스냅 J7 보정 (rad) — 양수 = 더 강하게 내려치는 방향
+let strokeJ4Offset = 0;  // 팔꿈치 뻗음 J4 보정 (rad)
+let strokeJ56Offset= 0;  // 전완 회전 J5·J6 보정 (rad)
 let PX_PER_BEAT = 60; // renderTimeline()에서 동적으로 재계산
 
 function updatePxPerBeat() {
@@ -318,6 +320,17 @@ function computeStrikePose(drum, phase) {
   if (arcJ1 > 0) {
     if (s === 'L') pose.L1 = clamp(pose.L1 - arcJ1, -2.0, 2.0);
     else           pose.R1 = clamp(pose.R1 + arcJ1, -2.0, 2.0);
+  }
+
+  // 스트로크 튜닝 오프셋 (타격 직전 최대, raise 자연 유지, rebound 서서히 복귀)
+  const strokePhaseW = { raise: 0, strike: 1.0, rebound: 0.3 }[phase] ?? 0;
+  if (strokeJ4Offset !== 0) {
+    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + strokeJ4Offset * strokePhaseW, 0, 2.0);
+  }
+  if (strokeJ56Offset !== 0) {
+    const sign = s === 'L' ? 1 : -1;
+    pose[`${s}5`] = clamp((pose[`${s}5`] ?? 0) + strokeJ56Offset * strokePhaseW * sign, -1.5, 1.5);
+    pose[`${s}6`] = clamp((pose[`${s}6`] ?? 0) + strokeJ56Offset * strokePhaseW * sign, -0.75, 0.75);
   }
 
   return pose;
@@ -2264,7 +2277,7 @@ function renderDrumList() {
     <div class="drum-pos-group">
       <label>X (앞)</label>
       <input class="drum-pos-inp" type="number" step="0.01" value="${drum.pos.x.toFixed(2)}"
-        oninput="updateDrumPos('${drum.id}','x',+this.value)">
+        onchange="updateDrumPos('${drum.id}','x',+this.value)">
       <input class="drum-pos-slider" type="range" min="0.20" max="0.90" step="0.01"
         value="${drum.pos.x.toFixed(2)}"
         oninput="updateDrumPos('${drum.id}','x',+this.value);syncSlider(this,'x')">
@@ -2272,7 +2285,7 @@ function renderDrumList() {
     <div class="drum-pos-group">
       <label>Y (좌우)</label>
       <input class="drum-pos-inp" type="number" step="0.01" value="${drum.pos.y.toFixed(2)}"
-        oninput="updateDrumPos('${drum.id}','y',+this.value)">
+        onchange="updateDrumPos('${drum.id}','y',+this.value)">
       <input class="drum-pos-slider" type="range" min="-0.90" max="0.90" step="0.01"
         value="${drum.pos.y.toFixed(2)}"
         oninput="updateDrumPos('${drum.id}','y',+this.value);syncSlider(this,'y')">
@@ -2280,7 +2293,7 @@ function renderDrumList() {
     <div class="drum-pos-group">
       <label>Z (높이)</label>
       <input class="drum-pos-inp" type="number" step="0.01" value="${drum.pos.z.toFixed(2)}"
-        oninput="updateDrumPos('${drum.id}','z',+this.value)">
+        onchange="updateDrumPos('${drum.id}','z',+this.value)">
       <input class="drum-pos-slider" type="range" min="0.25" max="1.00" step="0.01"
         value="${drum.pos.z.toFixed(2)}"
         oninput="updateDrumPos('${drum.id}','z',+this.value);syncSlider(this,'z')">
@@ -2378,13 +2391,30 @@ window.applyPattern = function () {
 
 document.getElementById('bpm-inp').addEventListener('change', () => updateTLInfo());
 
-// 스틱 J7 오프셋 슬라이더
-document.getElementById('stick-j7-slider').addEventListener('input', function () {
-  stickJ7Offset = parseFloat(this.value);
-  document.getElementById('stick-j7-val').textContent = stickJ7Offset.toFixed(2);
+// 스트로크 튜닝 슬라이더 공통 rebuild
+function _rebuildStroke() {
   _playKFs = buildFinalKeyframes();
   _playDur  = _playKFs.totalTime;
   if (!isPlaying) renderFrame(pauseOffset);
+}
+
+// 손목 스냅 J7
+document.getElementById('stick-j7-slider').addEventListener('input', function () {
+  stickJ7Offset = parseFloat(this.value);
+  document.getElementById('stick-j7-val').textContent = stickJ7Offset.toFixed(2);
+  _rebuildStroke();
+});
+// 팔꿈치 뻗음 J4
+document.getElementById('stroke-j4-slider').addEventListener('input', function () {
+  strokeJ4Offset = parseFloat(this.value);
+  document.getElementById('stroke-j4-val').textContent = strokeJ4Offset.toFixed(2);
+  _rebuildStroke();
+});
+// 전완 회전 J5·J6
+document.getElementById('stroke-j56-slider').addEventListener('input', function () {
+  strokeJ56Offset = parseFloat(this.value);
+  document.getElementById('stroke-j56-val').textContent = strokeJ56Offset.toFixed(2);
+  _rebuildStroke();
 });
 document.getElementById('meter-sel').addEventListener('change', () => {
   beatsPerBar = parseInt(document.getElementById('meter-sel').value) || 4;

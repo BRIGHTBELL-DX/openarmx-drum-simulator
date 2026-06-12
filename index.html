@@ -27,11 +27,6 @@
       <input type="file" id="audio-file" accept="audio/*" style="display:none" onchange="loadAudioFile(this)">
     </label>
     <span id="audio-name">파일 없음</span>
-    <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
-      🥢 스틱 J7
-      <input id="stick-j7-slider" type="range" min="-1.5" max="1.5" step="0.05" value="0" style="width:90px">
-      <span id="stick-j7-val" style="min-width:36px;text-align:right;">0.00</span> rad
-    </label>
   </div>
 </div>
 
@@ -50,6 +45,42 @@
     </div>
 
     <div id="drum-list"></div>
+  </div>
+
+  <!-- 오른쪽: 스트로크 튜닝 -->
+  <div id="stroke-panel">
+    <div class="panel-header">🎯 스트로크 튜닝</div>
+    <div class="panel-hint">
+      타격 시점 기준 적용<br>
+      raise: 0 · strike: 1.0 · rebound: 0.3
+    </div>
+    <div class="stroke-sliders">
+
+      <div class="stroke-row">
+        <div class="stroke-label">팔꿈치 뻗음 <span class="stroke-joint">J4</span></div>
+        <div class="stroke-ctrl">
+          <input id="stroke-j4-slider" class="stroke-slider" type="range" min="-1.0" max="1.0" step="0.05" value="0">
+          <span id="stroke-j4-val" class="stroke-val">0.00</span>
+        </div>
+      </div>
+
+      <div class="stroke-row">
+        <div class="stroke-label">전완 회전 <span class="stroke-joint">J5·J6</span></div>
+        <div class="stroke-ctrl">
+          <input id="stroke-j56-slider" class="stroke-slider" type="range" min="-1.5" max="1.5" step="0.05" value="0">
+          <span id="stroke-j56-val" class="stroke-val">0.00</span>
+        </div>
+      </div>
+
+      <div class="stroke-row">
+        <div class="stroke-label">손목 스냅 <span class="stroke-joint">J7</span></div>
+        <div class="stroke-ctrl">
+          <input id="stick-j7-slider" class="stroke-slider" type="range" min="-1.5" max="1.5" step="0.05" value="0">
+          <span id="stick-j7-val" class="stroke-val">0.00</span>
+        </div>
+      </div>
+
+    </div>
   </div>
 
   <!-- 중앙: 3D 뷰포트 -->
