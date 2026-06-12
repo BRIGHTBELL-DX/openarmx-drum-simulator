@@ -252,9 +252,11 @@ function computeStrikePose(drum, phase) {
   const style = DRUM_TYPES[drum.type]?.style || 'full';
 
   // 손목 스냅 J7 (위상별 고정 — IK와 별개) + 스틱 각도 오프셋
+  // 오프셋은 타격 직전(strike)에 최대, raise는 자연 자세 유지, rebound는 서서히 복귀
+  const j7PhaseW = { raise: 0, strike: 1.0, rebound: 0.3 }[phase] ?? 0;
   const j7Raw = ({ raise:-0.86, strike:+0.18, rebound:-0.54 }[phase] || 0) *
                 ({ big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0)
-                + stickJ7Offset;
+                + stickJ7Offset * j7PhaseW;
   const j7    = s === 'L' ? j7Raw : -j7Raw;
 
   // 심벌(하이햇·라이드·크래시): raise를 더 높게 → 위에서 내려치는 자연스러운 자세
