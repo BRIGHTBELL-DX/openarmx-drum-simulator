@@ -2187,10 +2187,15 @@ window.autoGeneratePattern = function () {
   if (Ld.length) safeAdd(Ld[0].id, 1);
 
   // ── 밀도 보장: 팔당 최소 0.5s(120bpm=1박) 이상 공백 금지 ──────
-  // 0.5s 간격마다 해당 팔 hit이 없으면 순환 드럼으로 채움
+  // 크래시 계열은 강조 포인트 전용이므로 필러에서 제외, 리듬 드럼만 사용
+  const FILLER_TYPES_L = ['hihat', 'tom_h', 'tom_m', 'tom_f'];
+  const FILLER_TYPES_R = ['snare', 'tom_f', 'ride', 'tom_m', 'tom_h'];
+  const fillL = Ld.filter(d => FILLER_TYPES_L.includes(d.type));
+  const fillR = Rd.filter(d => FILLER_TYPES_R.includes(d.type));
+
   const maxGapB = (bpm / 60) * 0.5;   // 0.5s → beat 단위
   ['L', 'R'].forEach(arm => {
-    const drums = arm === 'L' ? Ld : Rd;
+    const drums = (arm === 'L' ? fillL : fillR);
     if (!drums.length) return;
     let cycIdx = 0;
     for (let b = 1; b <= totalB; b += maxGapB) {
