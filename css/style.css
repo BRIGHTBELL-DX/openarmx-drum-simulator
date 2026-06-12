@@ -758,17 +758,18 @@ body {
 /* ── 드럼 미리보기 버튼 (약/중/강) ── */
 .drum-vel-preview {
   display: flex;
-  gap: 2px;
-  margin-left: auto;
-  flex-shrink: 0;
+  gap: 3px;
+  margin-bottom: 5px;
 }
 .dvp-btn {
+  flex: 1;
   font-size: 9px;
   font-weight: 700;
-  padding: 2px 5px;
+  padding: 3px 0;
   border-radius: 3px;
   cursor: pointer;
   line-height: 1.4;
+  text-align: center;
   transition: filter .1s, outline .1s;
 }
 .dvp-soft   { background: #0a1830; color: #6699cc; border: 1px solid #2244aa; }

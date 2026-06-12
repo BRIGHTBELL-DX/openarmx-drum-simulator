@@ -2309,12 +2309,12 @@ function renderDrumList() {
     <div class="drum-color-dot" style="background:${typeInfo.color};color:${typeInfo.color}"></div>
     <input class="drum-name-inp" value="${drum.name}"
       onchange="updateDrumProp('${drum.id}','name',this.value)">
-    <div class="drum-vel-preview">
-      <button class="dvp-btn dvp-soft"   onclick="previewDrumHit('${drum.id}','soft')"   title="약 미리보기 (TCP 경로 표시)">약</button>
-      <button class="dvp-btn dvp-medium" onclick="previewDrumHit('${drum.id}','medium')" title="중 미리보기 (TCP 경로 표시)">중</button>
-      <button class="dvp-btn dvp-hard"   onclick="previewDrumHit('${drum.id}','hard')"   title="강 미리보기 (TCP 경로 표시)">강</button>
-    </div>
     <button class="drum-del-btn" onclick="deleteDrum('${drum.id}')" title="삭제">✕</button>
+  </div>
+  <div class="drum-vel-preview">
+    <button class="dvp-btn dvp-soft"   onclick="previewDrumHit('${drum.id}','soft')"   title="약 미리보기 (TCP 경로 표시)">약</button>
+    <button class="dvp-btn dvp-medium" onclick="previewDrumHit('${drum.id}','medium')" title="중 미리보기 (TCP 경로 표시)">중</button>
+    <button class="dvp-btn dvp-hard"   onclick="previewDrumHit('${drum.id}','hard')"   title="강 미리보기 (TCP 경로 표시)">강</button>
   </div>
   <div class="drum-type-row">
     <select class="drum-type-sel" onchange="updateDrumProp('${drum.id}','type',this.value)">
