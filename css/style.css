@@ -535,6 +535,10 @@ body {
 }
 .tl-hit:hover { filter: brightness(1.5); transform: translateX(-50%) scaleY(1.1); }
 .tl-hit.flash { filter: brightness(3) !important; transform: translateX(-50%) scale(1.3) !important; }
+/* velocity 시각 구분 */
+.tl-hit.vel-soft   { width: 7px;  top: 5px; bottom: 5px; opacity: 0.60; }
+.tl-hit.vel-medium { width: 10px; top: 2px; bottom: 2px; }
+.tl-hit.vel-hard   { width: 14px; top: 1px; bottom: 1px; }
 
 #tl-playhead {
   position: absolute;

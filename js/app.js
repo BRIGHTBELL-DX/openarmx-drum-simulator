@@ -19,6 +19,21 @@ const DRUM_TYPES = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+//  타격 강도 (velocity) 배율 테이블
+// ═══════════════════════════════════════════════════════════════
+const VEL_SCALE = {
+  //          raiseZ  j7Strike  rebZ   j4(strike 보정)
+  soft:   { raiseZ: 0.55, j7Strike: 0.60, rebZ: 0.50, j4: -0.06 },
+  medium: { raiseZ: 1.00, j7Strike: 1.00, rebZ: 1.00, j4:  0.00 },
+  hard:   { raiseZ: 1.50, j7Strike: 1.30, rebZ: 1.45, j4: +0.08 },
+};
+const VEL_GLOW = {
+  soft:   c => `0 0 3px ${c}44`,
+  medium: c => `0 0 6px ${c}66`,
+  hard:   c => `0 0 11px ${c}bb`,
+};
+
+// ═══════════════════════════════════════════════════════════════
 //  드럼 키트 상태
 // ═══════════════════════════════════════════════════════════════
 // 어깨 높이 0.698m 기준
@@ -249,14 +264,14 @@ function _analyticGuess(drum, phase) {
 // strike: TCP가 드럼 위치에 정확히 도달
 // raise:  드럼 위치보다 약간 위·뒤 (코일업)
 // rebound: 타격 직후 위로 튀어오름
-function computeStrikePose(drum, phase) {
+function computeStrikePose(drum, phase, vel = 'medium') {
   const s     = drum.arm;
   const style = DRUM_TYPES[drum.type]?.style || 'full';
+  const vs    = VEL_SCALE[vel] ?? VEL_SCALE.medium;
 
-  // 손목 스냅 J7 (위상별 고정 — IK와 별개) + 스틱 각도 오프셋
-  // 오프셋은 타격 직전(strike)에 최대, raise는 자연 자세 유지, rebound는 서서히 복귀
+  // 손목 스냅 J7 (위상별 고정 — IK와 별개) + 스틱 각도 오프셋 + velocity 배율
   const j7PhaseW = { raise: 0, strike: 1.0, rebound: 0.3 }[phase] ?? 0;
-  const j7Raw = ({ raise:-0.86, strike:+0.18, rebound:-0.54 }[phase] || 0) *
+  const j7Raw = ({ raise:-0.86, strike:+0.18 * vs.j7Strike, rebound:-0.54 }[phase] || 0) *
                 ({ big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0)
                 + stickJ7Offset * j7PhaseW;
   const j7    = s === 'L' ? j7Raw : -j7Raw;
@@ -264,9 +279,9 @@ function computeStrikePose(drum, phase) {
   // 심벌(하이햇·라이드·크래시): raise를 더 높게 → 위에서 내려치는 자연스러운 자세
   const isCymbal = ['crash', 'ride', 'hihat'].includes(drum.type);
   const offMap = {
-    raise:   { x: isCymbal ? -0.04 : -0.03, z: isCymbal ? +0.17 : +0.10 },
-    strike:  { x: 0,                          z: 0                        },
-    rebound: { x: 0,                          z: isCymbal ? +0.13 : +0.08 },
+    raise:   { x: isCymbal ? -0.04 : -0.03, z: (isCymbal ? +0.17 : +0.10) * vs.raiseZ },
+    strike:  { x: 0,                          z: 0                                      },
+    rebound: { x: 0,                          z: (isCymbal ? +0.13 : +0.08) * vs.rebZ  },
   };
   const off    = offMap[phase] || offMap.strike;
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
@@ -320,6 +335,11 @@ function computeStrikePose(drum, phase) {
   if (arcJ1 > 0) {
     if (s === 'L') pose.L1 = clamp(pose.L1 - arcJ1, -2.0, 2.0);
     else           pose.R1 = clamp(pose.R1 + arcJ1, -2.0, 2.0);
+  }
+
+  // velocity J4 보정 — strike만 적용 (raise·rebound는 IK 그대로)
+  if (vs.j4 !== 0 && phase === 'strike') {
+    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + vs.j4, 0, 2.0);
   }
 
   // 스트로크 튜닝 오프셋 (타격 직전 최대, raise 자연 유지, rebound 서서히 복귀)
@@ -385,7 +405,7 @@ function buildKeyframes() {
     const drum = drumKit.find(d => d.id === evt.drumId);
     if (!drum || drum.type === 'kick') return;
     const t = parseFloat(((evt.beat - 1) * beatDur).toFixed(3));
-    armEvts[drum.arm].push({ drum, t });
+    armEvts[drum.arm].push({ drum, t, vel: evt.vel ?? 'medium' });
   });
   armEvts.L.sort((a, b) => a.t - b.t);
   armEvts.R.sort((a, b) => a.t - b.t);
@@ -401,7 +421,7 @@ function buildKeyframes() {
     const poseMap  = arm === 'L' ? L_poseMap : R_poseMap;
     const sideKeys = arm === 'L' ? L_KEYS    : R_KEYS;
 
-    armEvts[arm].forEach(({ drum, t }, idx) => {
+    armEvts[arm].forEach(({ drum, t, vel }, idx) => {
       const typeInfo = DRUM_TYPES[drum.type];
       const hasPrev  = idx > 0;  // 이전 타격이 있으면 raise 생략 → via-point가 대체
       const raiseT   = parseFloat(Math.max(0.001, t - preDur).toFixed(3));
@@ -413,16 +433,12 @@ function buildKeyframes() {
         : Infinity;
       const includeRebound = reboundT <= nextRaiseT;
 
-      // 첫 타격만 raise 추가 — 이후 타격은 via-point가 상승 역할 담당
-      // (raise를 남기면 목적지 직전에 다시 올라가 목적지가 최고점처럼 보임)
       if (!hasPrev) {
-        // preLift(t=0)에서 raise로 자연스럽게 sweep — 별도 hold 없이
-        // preLift가 시작 포즈이므로 보간 drift 자체가 자연스러운 접근 동작이 됨
-        addPose(poseMap, raiseT, computeStrikePose(drum, 'raise'), sideKeys);
+        addPose(poseMap, raiseT, computeStrikePose(drum, 'raise', vel), sideKeys);
       }
-      addPose(poseMap, t, computeStrikePose(drum, 'strike'), sideKeys);
+      addPose(poseMap, t, computeStrikePose(drum, 'strike', vel), sideKeys);
       if (includeRebound) {
-        addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound'), sideKeys);
+        addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
 
       // ── V자 arc via-point: 빠른 연타 포함 모든 연속 타격에 무조건 적용 ──
@@ -516,7 +532,16 @@ window.exportYAML = function () {
   ];
   const shortKeys = ['L1','L2','L3','L4','L5','L6','L7','R1','R2','R3','R4','R5','R6','R7'];
 
-  let yaml = 'joint_names:\n';
+  // 드럼 이벤트 (velocity 포함)
+  let yaml = 'drum_events:\n';
+  [...timelineEvents]
+    .sort((a, b) => a.beat - b.beat)
+    .forEach(e => {
+      const d = drumKit.find(d => d.id === e.drumId);
+      if (!d) return;
+      yaml += `- {drum: ${d.type}, name: "${d.name}", beat: ${e.beat.toFixed(3)}, vel: ${e.vel ?? 'medium'}}\n`;
+    });
+  yaml += '\njoint_names:\n';
   jointNames.forEach(n => { yaml += `- ${n}\n`; });
   yaml += 'points:\n';
 
@@ -1749,16 +1774,19 @@ function renderTimeline() {
     }
 
     timelineEvents.filter(e => e.drumId === drum.id).forEach(evt => {
+      const vel = evt.vel ?? 'medium';
       const x   = (evt.beat - 1) * PX_PER_BEAT;
       const hit = document.createElement('div');
-      hit.className      = 'tl-hit';
+      hit.className      = `tl-hit vel-${vel}`;
+      hit.dataset.vel    = vel;
+      hit.dataset.key    = `${drum.id}_${evt.beat}`;
       hit.style.left     = x + 'px';
       hit.style.background  = typeInfo.color;
-      hit.style.boxShadow   = `0 0 6px ${typeInfo.color}66`;
-      hit.title          = `${drum.name} — beat ${evt.beat.toFixed(2)}`;
-      const key = `${drum.id}_${evt.beat}`;
-      hit.dataset.key    = key;
-      hit.addEventListener('click', e => { e.stopPropagation(); removeEvent(drum.id, evt.beat); });
+      hit.style.boxShadow   = VEL_GLOW[vel](typeInfo.color);
+      const velLabel = { soft:'약', medium:'중', hard:'강' }[vel];
+      hit.title = `${drum.name} — beat ${evt.beat.toFixed(2)} [${velLabel}]  (클릭: 강도 변경 / 우클릭: 삭제)`;
+      hit.addEventListener('click',       e => { e.stopPropagation(); cycleVelocity(drum.id, evt.beat); });
+      hit.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); removeEvent(drum.id, evt.beat); });
       lane.appendChild(hit);
     });
 
@@ -1801,7 +1829,7 @@ function addEvent(drumId, beat) {
 
   // 킥은 팔 충돌 없음
   if (!drum || drum.type === 'kick') {
-    timelineEvents.push({ drumId, beat });
+    timelineEvents.push({ drumId, beat, vel: 'medium' });
     renderTimeline();
     _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
@@ -1841,7 +1869,7 @@ function addEvent(drumId, beat) {
     return;
   }
 
-  timelineEvents.push({ drumId, beat });
+  timelineEvents.push({ drumId, beat, vel: 'medium' });
   renderTimeline();
   _playKFs = buildFinalKeyframes();
   _playDur = _playKFs.totalTime;
@@ -1855,6 +1883,16 @@ function removeEvent(drumId, beat) {
     _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
   }
+}
+
+function cycleVelocity(drumId, beat) {
+  const evt = timelineEvents.find(e => e.drumId === drumId && Math.abs(e.beat - beat) < 0.01);
+  if (!evt) return;
+  evt.vel = { soft: 'medium', medium: 'hard', hard: 'soft' }[evt.vel ?? 'medium'];
+  renderTimeline();
+  _playKFs = buildFinalKeyframes();
+  _playDur  = _playKFs.totalTime;
+  if (!isPlaying) renderFrame(pauseOffset);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2065,7 +2103,7 @@ window.autoGeneratePattern = function () {
       const g = Math.abs(e.beat - bk);
       return ed?.arm === drum.arm && g > 0.001 && g < minGap;
     })) return false;
-    timelineEvents.push({ drumId, beat: bk });
+    timelineEvents.push({ drumId, beat: bk, vel: 'medium' });
     return true;
   }
 
