@@ -23,9 +23,9 @@ const DRUM_TYPES = {
 // ═══════════════════════════════════════════════════════════════
 const VEL_SCALE = {
   //          raiseZ  j7Strike  rebZ   j4(strike 보정)
-  soft:   { raiseZ: 0.55, j7Strike: 0.60, rebZ: 0.50, j4: -0.06 },
+  soft:   { raiseZ: 0.35, j7Strike: 0.40, rebZ: 0.30, j4: -0.10 },
   medium: { raiseZ: 1.00, j7Strike: 1.00, rebZ: 1.00, j4:  0.00 },
-  hard:   { raiseZ: 1.50, j7Strike: 1.30, rebZ: 1.45, j4: +0.08 },
+  hard:   { raiseZ: 1.80, j7Strike: 1.55, rebZ: 1.75, j4: +0.14 },
 };
 const VEL_GLOW = {
   soft:   c => `0 0 3px ${c}44`,
