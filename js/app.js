@@ -71,6 +71,7 @@ let timelineEvents = [];
 let bpm = 120;
 let beatsPerBar = 4;
 let totalBars = 8;
+let stickJ7Offset = 0;   // 스틱 J7 각도 보정 (rad) — 양수 = 더 강하게 내려치는 방향
 let PX_PER_BEAT = 60; // renderTimeline()에서 동적으로 재계산
 
 function updatePxPerBeat() {
@@ -250,9 +251,10 @@ function computeStrikePose(drum, phase) {
   const s     = drum.arm;
   const style = DRUM_TYPES[drum.type]?.style || 'full';
 
-  // 손목 스냅 J7 (위상별 고정 — IK와 별개)
+  // 손목 스냅 J7 (위상별 고정 — IK와 별개) + 스틱 각도 오프셋
   const j7Raw = ({ raise:-0.86, strike:+0.18, rebound:-0.54 }[phase] || 0) *
-                ({ big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0);
+                ({ big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0)
+                + stickJ7Offset;
   const j7    = s === 'L' ? j7Raw : -j7Raw;
 
   // 심벌(하이햇·라이드·크래시): raise를 더 높게 → 위에서 내려치는 자연스러운 자세
@@ -2373,6 +2375,15 @@ window.applyPattern = function () {
 };
 
 document.getElementById('bpm-inp').addEventListener('change', () => updateTLInfo());
+
+// 스틱 J7 오프셋 슬라이더
+document.getElementById('stick-j7-slider').addEventListener('input', function () {
+  stickJ7Offset = parseFloat(this.value);
+  document.getElementById('stick-j7-val').textContent = stickJ7Offset.toFixed(2);
+  _playKFs = buildFinalKeyframes();
+  _playDur  = _playKFs.totalTime;
+  if (!isPlaying) renderFrame(pauseOffset);
+});
 document.getElementById('meter-sel').addEventListener('change', () => {
   beatsPerBar = parseInt(document.getElementById('meter-sel').value) || 4;
   renderTimeline(); updateTLInfo();
