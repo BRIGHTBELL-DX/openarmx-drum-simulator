@@ -168,6 +168,12 @@
           <option value="32">1/32</option>
         </select>
       </label>
+      <div class="vel-mode-sel">
+        <span class="vel-mode-label">강도</span>
+        <button id="vel-mode-soft"   class="vel-mode-btn" onclick="setDefaultVel('soft')">약</button>
+        <button id="vel-mode-medium" class="vel-mode-btn active" onclick="setDefaultVel('medium')">중</button>
+        <button id="vel-mode-hard"   class="vel-mode-btn" onclick="setDefaultVel('hard')">강</button>
+      </div>
       <button class="btn-sm btn-autogen" onclick="autoGeneratePattern()">🎲 자동 생성</button>
       <button class="btn-sm" onclick="clearTimeline()">🗑 초기화</button>
     </div>

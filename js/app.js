@@ -86,6 +86,7 @@ let timelineEvents = [];
 let bpm = 120;
 let beatsPerBar = 4;
 let totalBars = 8;
+let defaultVel     = 'medium'; // 타임라인 클릭 기본 velocity
 let stickJ7Offset  = 0;  // 손목 스냅 J7 보정 (rad) — 양수 = 더 강하게 내려치는 방향
 let strokeJ4Offset = 0;  // 팔꿈치 뻗음 J4 보정 (rad)
 let strokeJ56Offset= 0;  // 전완 회전 J5·J6 보정 (rad)
@@ -1785,7 +1786,7 @@ function renderTimeline() {
       hit.style.boxShadow   = VEL_GLOW[vel](typeInfo.color);
       const velLabel = { soft:'약', medium:'중', hard:'강' }[vel];
       hit.title = `${drum.name} — beat ${evt.beat.toFixed(2)} [${velLabel}]  (클릭: 강도 변경 / 우클릭: 삭제)`;
-      hit.addEventListener('click',       e => { e.stopPropagation(); cycleVelocity(drum.id, evt.beat); });
+      hit.addEventListener('click',       e => { e.stopPropagation(); applyVel(drum.id, evt.beat); });
       hit.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); removeEvent(drum.id, evt.beat); });
       lane.appendChild(hit);
     });
@@ -1829,7 +1830,7 @@ function addEvent(drumId, beat) {
 
   // 킥은 팔 충돌 없음
   if (!drum || drum.type === 'kick') {
-    timelineEvents.push({ drumId, beat, vel: 'medium' });
+    timelineEvents.push({ drumId, beat, vel: defaultVel });
     renderTimeline();
     _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
@@ -1869,7 +1870,7 @@ function addEvent(drumId, beat) {
     return;
   }
 
-  timelineEvents.push({ drumId, beat, vel: 'medium' });
+  timelineEvents.push({ drumId, beat, vel: defaultVel });
   renderTimeline();
   _playKFs = buildFinalKeyframes();
   _playDur = _playKFs.totalTime;
@@ -1885,15 +1886,24 @@ function removeEvent(drumId, beat) {
   }
 }
 
-function cycleVelocity(drumId, beat) {
+// 노트 클릭 시 현재 선택된 defaultVel로 즉시 적용
+function applyVel(drumId, beat) {
   const evt = timelineEvents.find(e => e.drumId === drumId && Math.abs(e.beat - beat) < 0.01);
   if (!evt) return;
-  evt.vel = { soft: 'medium', medium: 'hard', hard: 'soft' }[evt.vel ?? 'medium'];
+  evt.vel = defaultVel;
   renderTimeline();
   _playKFs = buildFinalKeyframes();
   _playDur  = _playKFs.totalTime;
   if (!isPlaying) renderFrame(pauseOffset);
 }
+
+// 타임라인 상단 모드 버튼 클릭 핸들러
+window.setDefaultVel = function (vel) {
+  defaultVel = vel;
+  ['soft','medium','hard'].forEach(v => {
+    document.getElementById(`vel-mode-${v}`)?.classList.toggle('active', v === vel);
+  });
+};
 
 // ═══════════════════════════════════════════════════════════════
 //  드럼 타격 자세 실시간 미리보기
