@@ -2398,24 +2398,27 @@ function _rebuildStroke() {
   if (!isPlaying) renderFrame(pauseOffset);
 }
 
-// 손목 스냅 J7
-document.getElementById('stick-j7-slider').addEventListener('input', function () {
-  stickJ7Offset = parseFloat(this.value);
-  document.getElementById('stick-j7-val').textContent = stickJ7Offset.toFixed(2);
-  _rebuildStroke();
-});
-// 팔꿈치 뻗음 J4
-document.getElementById('stroke-j4-slider').addEventListener('input', function () {
-  strokeJ4Offset = parseFloat(this.value);
-  document.getElementById('stroke-j4-val').textContent = strokeJ4Offset.toFixed(2);
-  _rebuildStroke();
-});
-// 전완 회전 J5·J6
-document.getElementById('stroke-j56-slider').addEventListener('input', function () {
-  strokeJ56Offset = parseFloat(this.value);
-  document.getElementById('stroke-j56-val').textContent = strokeJ56Offset.toFixed(2);
-  _rebuildStroke();
-});
+// 스트로크 튜닝: 슬라이더 ↔ 숫자 입력 연동 헬퍼
+function _bindStrokePair(sliderId, numId, setter, min, max) {
+  const slider = document.getElementById(sliderId);
+  const num    = document.getElementById(numId);
+  slider.addEventListener('input', function () {
+    const v = parseFloat(this.value);
+    setter(v);
+    num.value = v.toFixed(2);
+    _rebuildStroke();
+  });
+  num.addEventListener('change', function () {
+    const v = Math.min(max, Math.max(min, parseFloat(this.value) || 0));
+    setter(v);
+    slider.value = v;
+    this.value   = v.toFixed(2);
+    _rebuildStroke();
+  });
+}
+_bindStrokePair('stick-j7-slider',  'stick-j7-val',  v => { stickJ7Offset  = v; }, -1.5, 1.5);
+_bindStrokePair('stroke-j4-slider', 'stroke-j4-val', v => { strokeJ4Offset = v; }, -1.0, 1.0);
+_bindStrokePair('stroke-j56-slider','stroke-j56-val',v => { strokeJ56Offset= v; }, -1.5, 1.5);
 document.getElementById('meter-sel').addEventListener('change', () => {
   beatsPerBar = parseInt(document.getElementById('meter-sel').value) || 4;
   renderTimeline(); updateTLInfo();

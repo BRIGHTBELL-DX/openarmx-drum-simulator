@@ -146,12 +146,25 @@ body {
   flex: 1;
   accent-color: #4488ff;
 }
-.stroke-val {
+.stroke-val-inp {
+  width: 54px;
   font-size: 11px;
   color: #88aaee;
   font-family: monospace;
-  min-width: 36px;
   text-align: right;
+  background: #0a0a1a;
+  border: 1px solid #2a3a60;
+  border-radius: 3px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+.stroke-val-inp:focus {
+  outline: none;
+  border-color: #4488ff;
+}
+.stroke-val-inp::-webkit-inner-spin-button,
+.stroke-val-inp::-webkit-outer-spin-button {
+  opacity: 0.4;
 }
 .panel-header {
   padding: 9px 12px;
