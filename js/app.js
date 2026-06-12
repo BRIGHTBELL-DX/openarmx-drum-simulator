@@ -2186,6 +2186,31 @@ window.autoGeneratePattern = function () {
   // 오프닝 악센트 (L팔 첫 드럼)
   if (Ld.length) safeAdd(Ld[0].id, 1);
 
+  // ── 밀도 보장: 팔당 최소 0.5s(120bpm=1박) 이상 공백 금지 ──────
+  // 0.5s 간격마다 해당 팔 hit이 없으면 순환 드럼으로 채움
+  const maxGapB = (bpm / 60) * 0.5;   // 0.5s → beat 단위
+  ['L', 'R'].forEach(arm => {
+    const drums = arm === 'L' ? Ld : Rd;
+    if (!drums.length) return;
+    let cycIdx = 0;
+    for (let b = 1; b <= totalB; b += maxGapB) {
+      const bk = parseFloat(b.toFixed(3));
+      if (bk > totalB) break;
+      // 근처(±0.45박)에 이미 이 팔 hit이 있으면 skip
+      const near = timelineEvents.some(e => {
+        const d = drumKit.find(d => d.id === e.drumId);
+        return d?.arm === arm && Math.abs(e.beat - bk) < maxGapB * 0.45;
+      });
+      if (near) continue;
+      const drumId = drums[cycIdx % drums.length].id;
+      // 양팔 충돌 시 0.13박 뒤로 재시도
+      const bkAlt = parseFloat((bk + 0.13).toFixed(3));
+      if (safeAdd(drumId, bk) || (bkAlt <= totalB && safeAdd(drumId, bkAlt))) {
+        cycIdx++;
+      }
+    }
+  });
+
   renderTimeline();
   _playKFs = buildFinalKeyframes();
   _playDur  = _playKFs.totalTime;
