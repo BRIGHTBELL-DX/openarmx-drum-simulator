@@ -1903,8 +1903,7 @@ function cycleVelocity(drumId, beat) {
 window._drumPreviewActive = false;
 let _previewTimer = null;
 
-window.previewDrumHit = function (drumId) {
-  // 기존 미리보기 중단
+window.previewDrumHit = function (drumId, vel = 'medium') {
   if (_previewTimer) { clearInterval(_previewTimer); _previewTimer = null; }
   window._drumPreviewActive = false;
 
@@ -1914,9 +1913,11 @@ window.previewDrumHit = function (drumId) {
     return;
   }
 
-  // 패널 선택 하이라이트
+  // 패널 선택 하이라이트 + 버튼 활성 표시
   document.querySelectorAll('.drum-item').forEach(el => el.classList.remove('drum-selected'));
   document.querySelector(`.drum-item[data-id="${drumId}"]`)?.classList.add('drum-selected');
+  document.querySelectorAll('.dvp-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.drum-item[data-id="${drumId}"] .dvp-${vel}`)?.classList.add('active');
 
   // 드럼 구체 플래시
   const mesh = drumMeshes[drumId];
@@ -1926,27 +1927,30 @@ window.previewDrumHit = function (drumId) {
     setTimeout(() => { mesh.material.emissiveIntensity = 0.20; mesh.scale.setScalar(1.0); }, 180);
   }
 
-  const dist = reachDist(drum);
-  setStatus(`[${drum.name}] ${drum.arm === 'L' ? '왼팔' : '오른팔'} 타격 미리보기 — 거리 ${dist.toFixed(2)}m`);
+  // TCP 경로: 강제 활성화 + 초기화 (강도별 궤적 비교용)
+  if (!_trailOn) { _trailOn = true; document.getElementById('btn-trail')?.classList.add('on'); }
+  clearTCPTrails();
 
-  // 페이즈 정의: 중립 → raise(코일업) → strike(타격) → rebound(반동) → 중립
+  const velLabel = { soft:'약', medium:'중', hard:'강' }[vel];
+  setStatus(`[${drum.name}] ${drum.arm === 'L' ? '왼팔' : '오른팔'} 미리보기 (${velLabel}) — 거리 ${reachDist(drum).toFixed(2)}m`);
+
   const phases = [
-    { from: { ...NEUTRAL },                       to: computeStrikePose(drum, 'raise'),   dur: 0.14 },
-    { from: computeStrikePose(drum, 'raise'),      to: computeStrikePose(drum, 'strike'),  dur: 0.09 },
-    { from: computeStrikePose(drum, 'strike'),     to: computeStrikePose(drum, 'rebound'), dur: 0.09 },
-    { from: computeStrikePose(drum, 'rebound'),    to: { ...NEUTRAL },                     dur: 0.22 },
+    { from: { ...NEUTRAL },                          to: computeStrikePose(drum, 'raise',   vel), dur: 0.14 },
+    { from: computeStrikePose(drum, 'raise',   vel), to: computeStrikePose(drum, 'strike',  vel), dur: 0.09 },
+    { from: computeStrikePose(drum, 'strike',  vel), to: computeStrikePose(drum, 'rebound', vel), dur: 0.09 },
+    { from: computeStrikePose(drum, 'rebound', vel), to: { ...NEUTRAL },                          dur: 0.22 },
   ];
 
   let phaseIdx = 0;
   let phaseT0  = performance.now();
   window._drumPreviewActive = true;
 
-  // setInterval(~16ms) — animate() 루프와 독립적으로 실행, 덮어쓰기 없음
   _previewTimer = setInterval(() => {
     if (phaseIdx >= phases.length) {
       clearInterval(_previewTimer);
       _previewTimer = null;
       window._drumPreviewActive = false;
+      document.querySelector('.dvp-btn.active')?.classList.remove('active');
       updateFK({ ...NEUTRAL });
       return;
     }
@@ -1961,6 +1965,12 @@ window.previewDrumHit = function (drumId) {
       cur[k] = (from[k] ?? 0) + ((to[k] ?? 0) - (from[k] ?? 0)) * st;
     });
     updateFK(cur);
+
+    // TCP 궤적 실시간 기록 (throttle 바이패스)
+    ['L','R'].forEach(arm => { _trailData[arm].lastUpd = 0; });
+    const wasPlaying = isPlaying; isPlaying = true;
+    updateTCPTrails();
+    isPlaying = wasPlaying;
 
     if (t >= 1) { phaseIdx++; phaseT0 = performance.now(); }
   }, 16);
@@ -2299,7 +2309,11 @@ function renderDrumList() {
     <div class="drum-color-dot" style="background:${typeInfo.color};color:${typeInfo.color}"></div>
     <input class="drum-name-inp" value="${drum.name}"
       onchange="updateDrumProp('${drum.id}','name',this.value)">
-    <button class="drum-preview-btn" onclick="previewDrumHit('${drum.id}')" title="타격 자세 미리보기 (팔 동작 확인)">🥁</button>
+    <div class="drum-vel-preview">
+      <button class="dvp-btn dvp-soft"   onclick="previewDrumHit('${drum.id}','soft')"   title="약 미리보기 (TCP 경로 표시)">약</button>
+      <button class="dvp-btn dvp-medium" onclick="previewDrumHit('${drum.id}','medium')" title="중 미리보기 (TCP 경로 표시)">중</button>
+      <button class="dvp-btn dvp-hard"   onclick="previewDrumHit('${drum.id}','hard')"   title="강 미리보기 (TCP 경로 표시)">강</button>
+    </div>
     <button class="drum-del-btn" onclick="deleteDrum('${drum.id}')" title="삭제">✕</button>
   </div>
   <div class="drum-type-row">

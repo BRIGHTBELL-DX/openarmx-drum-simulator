@@ -755,7 +755,29 @@ body {
   font-style: italic;
 }
 
-/* ── 드럼 미리보기 버튼 ── */
+/* ── 드럼 미리보기 버튼 (약/중/강) ── */
+.drum-vel-preview {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.dvp-btn {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: filter .1s, outline .1s;
+}
+.dvp-soft   { background: #0a1830; color: #6699cc; border: 1px solid #2244aa; }
+.dvp-medium { background: #0a1a10; color: #55cc77; border: 1px solid #228844; }
+.dvp-hard   { background: #2a0c0a; color: #ff6644; border: 1px solid #aa2211; }
+.dvp-btn:hover  { filter: brightness(1.6); }
+.dvp-btn.active { filter: brightness(2.0); outline: 1px solid currentColor; }
+
+/* ── 드럼 미리보기 버튼 (레거시, 미사용) ── */
 .drum-preview-btn {
   background: none;
   border: none;
