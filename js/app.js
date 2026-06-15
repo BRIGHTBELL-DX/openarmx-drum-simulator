@@ -282,7 +282,7 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const offMap = {
     raise:   { x: isCymbal ? -0.04 : -0.03, z: (isCymbal ? +0.17 : +0.10) * vs.raiseZ },
     strike:  { x: 0,                          z: 0                                      },
-    rebound: { x: isCymbal ? -0.04 : -0.03,   z: (isCymbal ? +0.13 : +0.08) * vs.rebZ  },
+    rebound: { x: 0,                            z: (isCymbal ? +0.13 : +0.08) * vs.rebZ  },
   };
   const off    = offMap[phase] || offMap.strike;
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
@@ -443,19 +443,19 @@ function buildKeyframes() {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
 
-      // ── via-point: 두 드럼 중간 방향에서 최고 높이 ──
-      // J1을 A rebound와 B raise의 중간으로 → 팔이 두 드럼 사이를 호 정점에서 지남.
-      // (IK 시드를 strike 기준으로 통일한 후 삼각형 호가 사라졌으므로 평균값 방식 복원)
+      // ── via-point: 두 드럼 strike 기준 중간 방향에서 최고 높이 ──
+      // rebound(A) 대신 strike(A) 사용 — rebound x-오프셋이 IK를 측면으로 드리프트시켜
+      // 평균 J1이 틀어지는 문제 방지. strike 포즈는 x-오프셋 없이 가장 깨끗한 J1을 가짐.
       if (next) {
         const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
-        const posA  = computeStrikePose(drum,      'rebound', vel);
-        const posB  = computeStrikePose(next.drum, 'raise',   next.vel ?? 'medium');
+        const posA  = computeStrikePose(drum,      'strike', vel);
+        const posB  = computeStrikePose(next.drum, 'raise',  next.vel ?? 'medium');
         const peak  = {};
         sideKeys.forEach(k => {
           const a = posA[k] ?? 0;
           const b = posB[k] ?? 0;
           let v = (a + b) / 2;
-          if (k.endsWith('4')) v = clamp(v + 0.42, 0.10, 1.70);
+          if (k.endsWith('4')) v = clamp(v + 0.45, 0.10, 1.70);
           peak[k] = v;
         });
         addPose(poseMap, peakT, peak, sideKeys);
