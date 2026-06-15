@@ -43,7 +43,7 @@ const VEL_GLOW = {
 let drumKit = [
   { id:'d0', name:'크래시 L',  type:'crash',  arm:'L', pos:{x:0.19, y: 0.47, z:0.38} },
   { id:'d1', name:'하이햇',    type:'hihat',  arm:'L', pos:{x:0.38, y: 0.34, z:0.35} },
-  { id:'d2', name:'하이 탐',   type:'tom_h',  arm:'L', pos:{x:0.55, y: 0.18, z:0.33} },
+  { id:'d2', name:'하이 탐',   type:'tom_h',  arm:'L', pos:{x:0.55, y: 0.25, z:0.33} },
   { id:'d3', name:'미드 탐',   type:'tom_m',  arm:'L', pos:{x:0.42, y: 0.04, z:0.30} },
   { id:'d4', name:'스네어',    type:'snare',  arm:'R', pos:{x:0.42, y:-0.15, z:0.28} },
   { id:'d5', name:'플로어 탐', type:'tom_f',  arm:'R', pos:{x:0.60, y:-0.29, z:0.25} },
@@ -305,6 +305,15 @@ function computeStrikePose(drum, phase, vel = 'medium') {
     if (lateralDist > 0.12) {
       if (s === 'L') extraLimits['L1'] = [-2.0, -0.22];  // L팔: 어깨 왼쪽으로
       else           extraLimits['R1'] = [ 0.22,  2.0];  // R팔: 어깨 오른쪽으로
+    }
+  }
+
+  // 탐 드럼(비심벌): J1 어깨를 바깥쪽으로 강제 — 팔이 안쪽으로 교차하며 치는 어색함 방지
+  if (!isCymbal) {
+    const lateralDistTom = (s === 'L' ? 1 : -1) * (drum.pos.y - ARM_ROOT[s].y);
+    if (lateralDistTom > 0.08) {
+      if (s === 'L') extraLimits['L1'] = [-2.0, -0.30];
+      else           extraLimits['R1'] = [ 0.30,  2.0];
     }
   }
 
