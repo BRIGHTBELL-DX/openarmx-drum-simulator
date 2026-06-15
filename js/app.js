@@ -454,12 +454,13 @@ function buildKeyframes() {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
 
-      // ── via-point: strike(A)와 raise(B) 중간에서 J4 최고점 ──
-      // strike(A) → via-point[두 드럼 사이 방향, J4 최고] → strike(B) = 깨끗한 V 호
+      // ── via-point: raise(A)와 raise(B) 중간에서 J4 최고점 ──
+      // raise(A)를 기준으로 삼아야 히햇 등 심벌을 스치지 않고 충분히 들어올린 뒤 넘어감
+      // (strike_A 기준 시 via-point Z가 너무 낮아 심벌 표면을 비비는 경로가 생김)
       if (next) {
         const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
-        const posA  = computeStrikePose(drum,      'strike', vel);
-        const posB  = computeStrikePose(next.drum, 'raise',  next.vel ?? 'medium');
+        const posA  = computeStrikePose(drum,      'raise', vel);
+        const posB  = computeStrikePose(next.drum, 'raise', next.vel ?? 'medium');
         const peak  = {};
         sideKeys.forEach(k => {
           const a = posA[k] ?? 0;
