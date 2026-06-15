@@ -287,6 +287,19 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const off    = offMap[phase] || offMap.strike;
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
 
+  // ── 도달 불가 위치 안전 처리 ────────────────────────────────────
+  // 타겟이 MAX_REACH 밖이면 같은 방향 97% 지점으로 클램핑
+  // → IK 발산 방지, 팔이 드럼을 뚫고 과도 연장되는 현상 제거
+  {
+    const rt = ARM_ROOT[s];
+    const dx = target.x - rt.x, dy = target.y - rt.y, dz = target.z - rt.z;
+    const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if (len > MAX_REACH * 0.97) {
+      const sc = (MAX_REACH * 0.97) / len;
+      target.x = rt.x + dx*sc; target.y = rt.y + dy*sc; target.z = rt.z + dz*sc;
+    }
+  }
+
   // 해석적 초기 추정 → 수치 IK로 정밀화
   // 모든 위상을 strike 추정치에서 시작 — 조인트 공간 연속성 유지, raise·rebound 호 방지
   const guess = _analyticGuess(drum, 'strike');
@@ -315,6 +328,14 @@ function computeStrikePose(drum, phase, vel = 'medium') {
       if (s === 'L') extraLimits['L1'] = [-2.0, -0.30];
       else           extraLimits['R1'] = [ 0.30,  2.0];
     }
+
+    // 거리 비율 기반 최소 팔꿈치 굽힘 — 멀리 있을수록 IK가 팔꿈치를 0으로 수렴시키는 현상 방지
+    // distNorm=0.70 → minJ4≈0.75  /  distNorm=0.85 → minJ4≈0.38  /  distNorm=0.97 → minJ4=0.22(clamp)
+    const ar = ARM_ROOT[s];
+    const dn = clamp(
+      Math.sqrt((drum.pos.x-ar.x)**2 + (drum.pos.y-ar.y)**2 + (drum.pos.z-ar.z)**2) / MAX_REACH,
+      0, 1);
+    extraLimits[`${s}4`] = [clamp((1 - dn) * 2.5, 0.22, 1.20), 1.70];
   }
 
   // 측면 드럼(하이햇·크래시·라이드 등): J2 어깨를 옆으로 펼치도록 강제
