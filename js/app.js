@@ -282,7 +282,7 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const offMap = {
     raise:   { x: isCymbal ? -0.04 : -0.03, z: (isCymbal ? +0.17 : +0.10) * vs.raiseZ },
     strike:  { x: 0,                          z: 0                                      },
-    rebound: { x: 0,                          z: (isCymbal ? +0.13 : +0.08) * vs.rebZ  },
+    rebound: { x: isCymbal ? -0.04 : -0.03,   z: (isCymbal ? +0.13 : +0.08) * vs.rebZ  },
   };
   const off    = offMap[phase] || offMap.strike;
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
