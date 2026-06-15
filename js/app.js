@@ -443,16 +443,19 @@ function buildKeyframes() {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
 
-      // ── via-point: 다음 드럼 raise 포즈 기반 중간 리프트 ──
-      // 다음 드럼의 raise 방향으로 팔이 향하도록 via-point를 설정.
-      // 기존 평균(A+B)/2는 J1이 중간 방향으로 섞여 엉뚱한 삼각형 호를 만들었음.
+      // ── via-point: 두 드럼 중간 방향에서 최고 높이 ──
+      // J1을 A rebound와 B raise의 중간으로 → 팔이 두 드럼 사이를 호 정점에서 지남.
+      // (IK 시드를 strike 기준으로 통일한 후 삼각형 호가 사라졌으므로 평균값 방식 복원)
       if (next) {
         const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
-        const posB  = computeStrikePose(next.drum, 'raise', next.vel ?? 'medium');
+        const posA  = computeStrikePose(drum,      'rebound', vel);
+        const posB  = computeStrikePose(next.drum, 'raise',   next.vel ?? 'medium');
         const peak  = {};
         sideKeys.forEach(k => {
-          let v = posB[k] ?? 0;
-          if (k.endsWith('4')) v = clamp(v + 0.20, 0.10, 1.70);
+          const a = posA[k] ?? 0;
+          const b = posB[k] ?? 0;
+          let v = (a + b) / 2;
+          if (k.endsWith('4')) v = clamp(v + 0.42, 0.10, 1.70);
           peak[k] = v;
         });
         addPose(poseMap, peakT, peak, sideKeys);
