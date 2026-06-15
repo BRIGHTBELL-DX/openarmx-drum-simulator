@@ -46,7 +46,7 @@ let drumKit = [
   { id:'d2', name:'하이 탐',   type:'tom_h',  arm:'L', pos:{x:0.55, y: 0.25, z:0.33} },
   { id:'d3', name:'미드 탐',   type:'tom_m',  arm:'L', pos:{x:0.42, y: 0.04, z:0.30} },
   { id:'d4', name:'스네어',    type:'snare',  arm:'R', pos:{x:0.42, y:-0.15, z:0.28} },
-  { id:'d5', name:'플로어 탐', type:'tom_f',  arm:'R', pos:{x:0.60, y:-0.29, z:0.25} },
+  { id:'d5', name:'플로어 탐', type:'tom_f',  arm:'R', pos:{x:0.50, y:-0.29, z:0.25} },
   { id:'d6', name:'라이드',    type:'ride',   arm:'R', pos:{x:0.37, y:-0.52, z:0.35} },
   { id:'d7', name:'크래시 R',  type:'crash',  arm:'R', pos:{x:0.12, y:-0.53, z:0.38} },
 ];
