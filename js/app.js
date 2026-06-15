@@ -288,7 +288,8 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
 
   // 해석적 초기 추정 → 수치 IK로 정밀화
-  const guess = _analyticGuess(drum, phase);
+  // rebound는 strike 추정치에서 시작 — 조인트 공간 연속성 유지, 측면 드럼 꺾임 방지
+  const guess = _analyticGuess(drum, phase === 'rebound' ? 'strike' : phase);
   const init  = {};
   [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
 
