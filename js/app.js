@@ -443,20 +443,16 @@ function buildKeyframes() {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
 
-      // ── V자 arc via-point: 빠른 연타 포함 모든 연속 타격에 무조건 적용 ──
-      // peakT = 두 strike 시각의 정중앙
-      // → 중간 지점에서 J4 최고점, 이후 목적지로 자연스럽게 하강
+      // ── via-point: 다음 드럼 raise 포즈 기반 중간 리프트 ──
+      // 다음 드럼의 raise 방향으로 팔이 향하도록 via-point를 설정.
+      // 기존 평균(A+B)/2는 J1이 중간 방향으로 섞여 엉뚱한 삼각형 호를 만들었음.
       if (next) {
         const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
-        const posA  = computeStrikePose(drum,      'rebound');
-        const posB  = computeStrikePose(next.drum, 'raise');
+        const posB  = computeStrikePose(next.drum, 'raise', next.vel ?? 'medium');
         const peak  = {};
         sideKeys.forEach(k => {
-          const a = posA[k] ?? 0;
-          const b = posB[k] ?? 0;
-          let v = (a + b) / 2;
-          // J4 팔꿈치: arc 최고점 — raise/rebound 양쪽보다 높게 유지
-          if (k.endsWith('4')) v = clamp(v + 0.42, 0.10, 1.70);
+          let v = posB[k] ?? 0;
+          if (k.endsWith('4')) v = clamp(v + 0.20, 0.10, 1.70);
           peak[k] = v;
         });
         addPose(poseMap, peakT, peak, sideKeys);
