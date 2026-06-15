@@ -430,10 +430,12 @@ function buildKeyframes() {
       const reboundT = parseFloat((t + typeInfo.rebDur).toFixed(3));
 
       const next = armEvts[arm][idx + 1];
-      const nextRaiseT = next
-        ? parseFloat(Math.max(0.001, next.t - preDur).toFixed(3))
-        : Infinity;
-      const includeRebound = reboundT <= nextRaiseT;
+
+      // 다음 타격이 있으면 rebound 생략 — rebound가 현재 드럼 바로 위로 팔을 들어
+      // strike → rebound → via-point 순서가 되면 ㄷ자 경로가 됨.
+      // via-point가 두 드럼 사이 최고점 역할을 대신하므로 rebound 불필요.
+      // 마지막 타격에만 rebound 포함(자연스러운 잔향 표현).
+      const includeRebound = !next;
 
       if (!hasPrev) {
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise', vel), sideKeys);
@@ -443,9 +445,8 @@ function buildKeyframes() {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
 
-      // ── via-point: 두 드럼 strike 기준 중간 방향에서 최고 높이 ──
-      // rebound(A) 대신 strike(A) 사용 — rebound x-오프셋이 IK를 측면으로 드리프트시켜
-      // 평균 J1이 틀어지는 문제 방지. strike 포즈는 x-오프셋 없이 가장 깨끗한 J1을 가짐.
+      // ── via-point: strike(A)와 raise(B) 중간에서 J4 최고점 ──
+      // strike(A) → via-point[두 드럼 사이 방향, J4 최고] → strike(B) = 깨끗한 V 호
       if (next) {
         const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
         const posA  = computeStrikePose(drum,      'strike', vel);
