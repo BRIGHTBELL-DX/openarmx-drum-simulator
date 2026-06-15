@@ -288,8 +288,8 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
 
   // 해석적 초기 추정 → 수치 IK로 정밀화
-  // rebound는 strike 추정치에서 시작 — 조인트 공간 연속성 유지, 측면 드럼 꺾임 방지
-  const guess = _analyticGuess(drum, phase === 'rebound' ? 'strike' : phase);
+  // 모든 위상을 strike 추정치에서 시작 — 조인트 공간 연속성 유지, raise·rebound 호 방지
+  const guess = _analyticGuess(drum, 'strike');
   const init  = {};
   [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
 
@@ -332,7 +332,7 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   // arc를 줄여 시작 자세→raise 간 튐 현상 방지
   const lateralAbs  = Math.abs(drum.pos.y);
   const arcScale    = Math.max(0, 1 - lateralAbs / 0.45);
-  const arcJ1Base   = { raise: 0.30, rebound: 0.15 }[phase] ?? 0;
+  const arcJ1Base   = { raise: 0.06, rebound: 0.03 }[phase] ?? 0;
   const arcJ1       = arcJ1Base * arcScale;
   if (arcJ1 > 0) {
     if (s === 'L') pose.L1 = clamp(pose.L1 - arcJ1, -2.0, 2.0);
