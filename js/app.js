@@ -499,11 +499,12 @@ function buildKeyframes() {
   armEvts.L.sort((a, b) => a.t - b.t);
   armEvts.R.sort((a, b) => a.t - b.t);
 
-  function addPose(poseMap, time, pose, sideKeys) {
+  function addPose(poseMap, time, pose, sideKeys, isStrike = false) {
     const key = time.toFixed(3);
     if (!poseMap.has(key)) poseMap.set(key, {});
     const cur = poseMap.get(key);
     sideKeys.forEach(k => { cur[k] = pose[k]; });
+    if (isStrike) cur._isStrike = true;
   }
 
   ['L', 'R'].forEach(arm => {
@@ -527,7 +528,7 @@ function buildKeyframes() {
       if (!hasPrev) {
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise', vel), sideKeys);
       }
-      addPose(poseMap, t, computeStrikePose(drum, 'strike', vel), sideKeys);
+      addPose(poseMap, t, computeStrikePose(drum, 'strike', vel), sideKeys, true);
       if (includeRebound) {
         addPose(poseMap, reboundT, computeStrikePose(drum, 'rebound', vel), sideKeys);
       }
@@ -557,7 +558,10 @@ function buildKeyframes() {
 
   const toArray = (map) =>
     Array.from(map.entries())
-      .map(([t, angles]) => ({ time: parseFloat(t), angles }))
+      .map(([t, v]) => {
+        const { _isStrike, ...angles } = v;
+        return { time: parseFloat(t), angles, isStrike: !!_isStrike };
+      })
       .sort((a, b) => a.time - b.time);
 
   return { L: toArray(L_poseMap), R: toArray(R_poseMap), totalTime };
@@ -1257,11 +1261,18 @@ function interpolateArm(t, kfs, keys) {
   const p0kf = kfs[Math.max(0, idx - 1)];
   const p3kf = kfs[Math.min(kfs.length - 1, idx + 2)];
   const s = clamp((t - p1kf.time) / (p2kf.time - p1kf.time), 0, 1);
+  const s2 = s*s, s3 = s2*s;
   const out = {};
   keys.forEach(k => {
-    out[k] = catmullRom(s,
-      p0kf.angles[k] ?? 0, p1kf.angles[k] ?? 0,
-      p2kf.angles[k] ?? 0, p3kf.angles[k] ?? 0);
+    const a0 = p0kf.angles[k] ?? 0;
+    const a1 = p1kf.angles[k] ?? 0;
+    const a2 = p2kf.angles[k] ?? 0;
+    const a3 = p3kf.angles[k] ?? 0;
+    // strike 키프레임에서 접선=0 → 진입·출발 모두 속도 0 = 명확한 타격감
+    // 일반 경유점은 CatmullRom 접선 유지 → 관성 있는 통과
+    const m1 = p1kf.isStrike ? 0 : (a2 - a0) * 0.5;
+    const m2 = p2kf.isStrike ? 0 : (a3 - a1) * 0.5;
+    out[k] = (2*s3 - 3*s2 + 1)*a1 + (s3 - 2*s2 + s)*m1 + (-2*s3 + 3*s2)*a2 + (s3 - s2)*m2;
   });
   return out;
 }
@@ -1481,14 +1492,13 @@ function interpolateAnglesFlat(t, flatKfs) {
   const p1kf = flatKfs[idx], p2kf = flatKfs[idx + 1];
   if (p1kf.time === p2kf.time) return { ...p1kf.angles, L_grip: 0, R_grip: 0 };
 
-  const p0kf = flatKfs[Math.max(0, idx - 1)];
-  const p3kf = flatKfs[Math.min(flatKfs.length - 1, idx + 2)];
   const s = clamp((t - p1kf.time) / (p2kf.time - p1kf.time), 0, 1);
+  const ss = smoothStep(s);
   const out = { L_grip: 0, R_grip: 0 };
   _JOINT_KEYS14.forEach(k => {
-    out[k] = catmullRom(s,
-      p0kf.angles[k] ?? 0, p1kf.angles[k] ?? 0,
-      p2kf.angles[k] ?? 0, p3kf.angles[k] ?? 0);
+    const a1 = p1kf.angles[k] ?? 0;
+    const a2 = p2kf.angles[k] ?? 0;
+    out[k] = a1 + (a2 - a1) * ss;
   });
   return out;
 }
