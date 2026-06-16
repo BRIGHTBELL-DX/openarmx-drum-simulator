@@ -80,6 +80,63 @@ window.resetDrumKit = function () {
 };
 
 // ═══════════════════════════════════════════════════════════════
+//  설정·타임라인 영속 (localStorage) — 강력 새로고침에도 유지
+// ═══════════════════════════════════════════════════════════════
+const _SETTINGS_STORE = 'openarmx_settings_v1';
+const _TIMELINE_STORE = 'openarmx_timeline_v1';
+
+function saveSettings() {
+  try {
+    localStorage.setItem(_SETTINGS_STORE, JSON.stringify({
+      bpm:          parseInt(document.getElementById('bpm-inp')?.value)   || bpm,
+      beatsPerBar:  parseInt(document.getElementById('meter-sel')?.value) || beatsPerBar,
+      totalBars:    parseInt(document.getElementById('bars-inp')?.value)  || totalBars,
+      introChecked: document.getElementById('chk-intro')?.checked ?? true,
+      outroChecked: document.getElementById('chk-outro')?.checked ?? true,
+      stickJ7Offset, strokeJ4Offset, strokeJ56Offset,
+    }));
+  } catch(e) {}
+}
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(_SETTINGS_STORE);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s.bpm         != null) { bpm         = s.bpm;         const el = document.getElementById('bpm-inp');    if (el) el.value = bpm; }
+    if (s.beatsPerBar != null) { beatsPerBar = s.beatsPerBar;  const el = document.getElementById('meter-sel'); if (el) el.value = beatsPerBar; }
+    if (s.totalBars   != null) { totalBars   = s.totalBars;    const el = document.getElementById('bars-inp');  if (el) el.value = totalBars; }
+    if (s.introChecked != null) { const el = document.getElementById('chk-intro'); if (el) el.checked = s.introChecked; }
+    if (s.outroChecked != null) { const el = document.getElementById('chk-outro'); if (el) el.checked = s.outroChecked; }
+    if (s.stickJ7Offset   != null) { stickJ7Offset   = s.stickJ7Offset;   _setSliderPair('stick-j7-slider',   'stick-j7-val',   stickJ7Offset); }
+    if (s.strokeJ4Offset  != null) { strokeJ4Offset  = s.strokeJ4Offset;  _setSliderPair('stroke-j4-slider',  'stroke-j4-val',  strokeJ4Offset); }
+    if (s.strokeJ56Offset != null) { strokeJ56Offset = s.strokeJ56Offset; _setSliderPair('stroke-j56-slider', 'stroke-j56-val', strokeJ56Offset); }
+    updateTLInfo();
+  } catch(e) {}
+}
+function _setSliderPair(sliderId, valId, v) {
+  const sl = document.getElementById(sliderId); if (sl) sl.value = v;
+  const nm = document.getElementById(valId);    if (nm) nm.value = v.toFixed(2);
+}
+function saveTimeline() {
+  try { localStorage.setItem(_TIMELINE_STORE, JSON.stringify(timelineEvents)); } catch(e) {}
+}
+function loadTimeline() {
+  try {
+    const raw = localStorage.getItem(_TIMELINE_STORE);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) timelineEvents = parsed;
+  } catch(e) {}
+}
+// 타임라인 이벤트 변경 후 공통 처리 (render + 키프레임 재빌드 + 저장)
+function _commitTimeline() {
+  renderTimeline();
+  _playKFs = buildFinalKeyframes();
+  _playDur = _playKFs.totalTime;
+  saveTimeline();
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  타임라인 상태
 // ═══════════════════════════════════════════════════════════════
 let timelineEvents = [];
@@ -1852,9 +1909,7 @@ function addEvent(drumId, beat) {
   const sameIdx = timelineEvents.findIndex(e => e.drumId === drumId && Math.abs(e.beat - beat) < 0.01);
   if (sameIdx >= 0) {
     timelineEvents.splice(sameIdx, 1);
-    renderTimeline();
-    _playKFs = buildFinalKeyframes();
-    _playDur = _playKFs.totalTime;
+    _commitTimeline();
     return;
   }
 
@@ -1863,9 +1918,7 @@ function addEvent(drumId, beat) {
   // 킥은 팔 충돌 없음
   if (!drum || drum.type === 'kick') {
     timelineEvents.push({ drumId, beat, vel: defaultVel });
-    renderTimeline();
-    _playKFs = buildFinalKeyframes();
-    _playDur = _playKFs.totalTime;
+    _commitTimeline();
     return;
   }
 
@@ -1903,18 +1956,14 @@ function addEvent(drumId, beat) {
   }
 
   timelineEvents.push({ drumId, beat, vel: defaultVel });
-  renderTimeline();
-  _playKFs = buildFinalKeyframes();
-  _playDur = _playKFs.totalTime;
+  _commitTimeline();
 }
 
 function removeEvent(drumId, beat) {
   const idx = timelineEvents.findIndex(e => e.drumId === drumId && Math.abs(e.beat - beat) < 0.01);
   if (idx >= 0) {
     timelineEvents.splice(idx, 1);
-    renderTimeline();
-    _playKFs = buildFinalKeyframes();
-    _playDur = _playKFs.totalTime;
+    _commitTimeline();
   }
 }
 
@@ -1923,9 +1972,7 @@ function applyVel(drumId, beat) {
   const evt = timelineEvents.find(e => e.drumId === drumId && Math.abs(e.beat - beat) < 0.01);
   if (!evt) return;
   evt.vel = defaultVel;
-  renderTimeline();
-  _playKFs = buildFinalKeyframes();
-  _playDur  = _playKFs.totalTime;
+  _commitTimeline();
   if (!isPlaying) renderFrame(pauseOffset);
 }
 
@@ -2122,6 +2169,7 @@ window.clearTimeline = function () {
   timelineEvents = [];
   stopAnim();
   renderTimeline();
+  saveTimeline();
   setStatus('타임라인 초기화됨');
 };
 
@@ -2323,9 +2371,7 @@ window.autoGeneratePattern = function () {
     }
   });
 
-  renderTimeline();
-  _playKFs = buildFinalKeyframes();
-  _playDur  = _playKFs.totalTime;
+  _commitTimeline();
   stopAnim();
   if (timelineEvents.length) playAnim();
   setStatus(`🎲 자동 생성: ${style.name} (${timelineEvents.length}개)`);
@@ -2510,16 +2556,17 @@ function _bindStrokePair(sliderId, numId, setter, min, max) {
     _rebuildStroke();
   });
 }
-_bindStrokePair('stick-j7-slider',  'stick-j7-val',  v => { stickJ7Offset  = v; }, -1.5, 1.5);
-_bindStrokePair('stroke-j4-slider', 'stroke-j4-val', v => { strokeJ4Offset = v; }, -1.0, 1.0);
-_bindStrokePair('stroke-j56-slider','stroke-j56-val',v => { strokeJ56Offset= v; }, -1.5, 1.5);
+_bindStrokePair('stick-j7-slider',  'stick-j7-val',  v => { stickJ7Offset  = v; saveSettings(); }, -1.5, 1.5);
+_bindStrokePair('stroke-j4-slider', 'stroke-j4-val', v => { strokeJ4Offset = v; saveSettings(); }, -1.0, 1.0);
+_bindStrokePair('stroke-j56-slider','stroke-j56-val',v => { strokeJ56Offset= v; saveSettings(); }, -1.5, 1.5);
+document.getElementById('bpm-inp').addEventListener('input', () => saveSettings());
 document.getElementById('meter-sel').addEventListener('change', () => {
   beatsPerBar = parseInt(document.getElementById('meter-sel').value) || 4;
-  renderTimeline(); updateTLInfo();
+  renderTimeline(); updateTLInfo(); saveSettings();
 });
 document.getElementById('bars-inp').addEventListener('change', () => {
   totalBars = parseInt(document.getElementById('bars-inp').value) || 4;
-  renderTimeline(); updateTLInfo();
+  renderTimeline(); updateTLInfo(); saveSettings();
 });
 document.getElementById('grid-sel').addEventListener('change', () => renderTimeline());
 
@@ -2557,12 +2604,20 @@ window.addEventListener('resize', () => renderTimeline());
     const inclOutro = document.getElementById('chk-outro')?.checked ?? true;
     const label = [inclIntro && '인트로', inclOutro && '아웃트로'].filter(Boolean).join('+');
     setStatus(`타임라인 갱신: ${label || '드럼 본편만'} (${_playDur.toFixed(1)}s)`);
+    saveSettings();
   });
 });
 updateFK({ ...NEUTRAL });
 renderDrumList();
 renderSkinPresets();
 rebuildDrumSpheres();
+loadSettings();   // BPM·박자·마디·체크박스·스트로크 오프셋 복원
+loadTimeline();   // 타임라인 이벤트 복원
 renderTimeline();
 updateTLInfo();
+if (timelineEvents.length) {
+  _playKFs = buildFinalKeyframes();
+  _playDur  = _playKFs.totalTime;
+  document.getElementById('scrubber').max = _playDur;
+}
 setStatus('드럼 키트 로드됨 — 타임라인 클릭으로 배치 · 뷰포트 드래그로 위치 이동');
