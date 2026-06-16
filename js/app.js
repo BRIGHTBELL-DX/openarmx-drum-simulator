@@ -1227,22 +1227,41 @@ let _flashState = {};
 
 function smoothStep(t) { return t * t * (3 - 2 * t); }
 
+// Catmull-Rom 스플라인: p1→p2 구간, p0/p3는 접선 계산용
+// → 각 키프레임을 정확히 통과하면서 경유점에서 속도 연속성 유지
+// → via-point에서 멈추지 않고 자연스럽게 통과 (관성 효과)
+function catmullRom(t, p0, p1, p2, p3) {
+  const t2 = t * t, t3 = t2 * t;
+  return 0.5 * (
+    2*p1 +
+    (-p0 + p2) * t +
+    (2*p0 - 5*p1 + 4*p2 - p3) * t2 +
+    (-p0 + 3*p1 - 3*p2 + p3) * t3
+  );
+}
+
 function interpolateArm(t, kfs, keys) {
   const neutral = {};
   keys.forEach(k => { neutral[k] = 0; });
   if (!kfs.length) return neutral;
   if (kfs.length === 1) { const o = {}; keys.forEach(k => { o[k] = kfs[0].angles[k] ?? 0; }); return o; }
 
-  let before = kfs[0], after = kfs[kfs.length - 1];
+  let idx = kfs.length - 2;
   for (let i = 0; i < kfs.length - 1; i++) {
-    if (kfs[i].time <= t && kfs[i+1].time >= t) { before = kfs[i]; after = kfs[i+1]; break; }
+    if (kfs[i].time <= t && kfs[i+1].time >= t) { idx = i; break; }
   }
-  if (before.time === after.time) { const o = {}; keys.forEach(k => { o[k] = before.angles[k] ?? 0; }); return o; }
+  const p1kf = kfs[idx], p2kf = kfs[idx + 1];
+  if (p1kf.time === p2kf.time) { const o = {}; keys.forEach(k => { o[k] = p1kf.angles[k] ?? 0; }); return o; }
 
-  const s = smoothStep(clamp((t - before.time) / (after.time - before.time), 0, 1));
+  // 경계: 첫/끝 키프레임은 같은 값으로 클램핑 → 시작·끝에서 자연스럽게 정지
+  const p0kf = kfs[Math.max(0, idx - 1)];
+  const p3kf = kfs[Math.min(kfs.length - 1, idx + 2)];
+  const s = clamp((t - p1kf.time) / (p2kf.time - p1kf.time), 0, 1);
   const out = {};
   keys.forEach(k => {
-    out[k] = (before.angles[k] ?? 0) + ((after.angles[k] ?? 0) - (before.angles[k] ?? 0)) * s;
+    out[k] = catmullRom(s,
+      p0kf.angles[k] ?? 0, p1kf.angles[k] ?? 0,
+      p2kf.angles[k] ?? 0, p3kf.angles[k] ?? 0);
   });
   return out;
 }
@@ -1455,18 +1474,21 @@ function interpolateAnglesFlat(t, flatKfs) {
   if (!flatKfs.length) return { ...NEUTRAL };
   if (flatKfs.length === 1) return { ...flatKfs[0].angles, L_grip: 0, R_grip: 0 };
 
-  let before = flatKfs[0], after = flatKfs[flatKfs.length - 1];
+  let idx = flatKfs.length - 2;
   for (let i = 0; i < flatKfs.length - 1; i++) {
-    if (flatKfs[i].time <= t && flatKfs[i + 1].time >= t) {
-      before = flatKfs[i]; after = flatKfs[i + 1]; break;
-    }
+    if (flatKfs[i].time <= t && flatKfs[i + 1].time >= t) { idx = i; break; }
   }
-  if (before.time === after.time) return { ...before.angles, L_grip: 0, R_grip: 0 };
+  const p1kf = flatKfs[idx], p2kf = flatKfs[idx + 1];
+  if (p1kf.time === p2kf.time) return { ...p1kf.angles, L_grip: 0, R_grip: 0 };
 
-  const s = smoothStep(clamp((t - before.time) / (after.time - before.time), 0, 1));
+  const p0kf = flatKfs[Math.max(0, idx - 1)];
+  const p3kf = flatKfs[Math.min(flatKfs.length - 1, idx + 2)];
+  const s = clamp((t - p1kf.time) / (p2kf.time - p1kf.time), 0, 1);
   const out = { L_grip: 0, R_grip: 0 };
   _JOINT_KEYS14.forEach(k => {
-    out[k] = (before.angles[k] ?? 0) + ((after.angles[k] ?? 0) - (before.angles[k] ?? 0)) * s;
+    out[k] = catmullRom(s,
+      p0kf.angles[k] ?? 0, p1kf.angles[k] ?? 0,
+      p2kf.angles[k] ?? 0, p3kf.angles[k] ?? 0);
   });
   return out;
 }
