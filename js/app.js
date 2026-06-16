@@ -1268,10 +1268,11 @@ function interpolateArm(t, kfs, keys) {
     const a1 = p1kf.angles[k] ?? 0;
     const a2 = p2kf.angles[k] ?? 0;
     const a3 = p3kf.angles[k] ?? 0;
-    // strike 키프레임에서 접선=0 → 진입·출발 모두 속도 0 = 명확한 타격감
+    // strike 키프레임 진입: 접선=0 → 명확한 타격감 (감속 후 정지)
+    // strike 키프레임 출발: 접선=0 → U자 방지 (Hermite h11 항이 음수이므로 m2≠0이면 뒤로 휨)
     // 일반 경유점은 CatmullRom 접선 유지 → 관성 있는 통과
     const m1 = p1kf.isStrike ? 0 : (a2 - a0) * 0.5;
-    const m2 = p2kf.isStrike ? 0 : (a3 - a1) * 0.5;
+    const m2 = (p2kf.isStrike || p1kf.isStrike) ? 0 : (a3 - a1) * 0.5;
     out[k] = (2*s3 - 3*s2 + 1)*a1 + (s3 - 2*s2 + s)*m1 + (-2*s3 + 3*s2)*a2 + (s3 - s2)*m2;
   });
   return out;
@@ -1347,25 +1348,19 @@ function _breathePose(base, amp) {
 }
 
 /**
- * 인트로 4초 — armSpreadPose 경유 (스틱 충돌 안전)
+ * 인트로 4초 — neutral → frontReadyPose 직행 (최소 동작)
  *
  *  0.00s: neutral         — 시작
- *  1.30s: armSpreadPose   — 양팔 옆으로 최대 벌림 (충돌 없는 후퇴)
- *  2.75s: frontReadyPose  — 앞으로 들어오며 준비
+ *  2.75s: frontReadyPose  — 천천히 준비 자세로
  *  3.00s: frontReadyPose  — 홀드
  *  3.30s: breathe in (+0.04)
  *  3.70s: breathe out     — 정지
  *  4.00s: firstDrumPose   — ▶ 드럼 시작
- *
- *  smoothstep 보간: 각 구간이 S곡선으로 자연스럽게 연결됨
  */
 function createDrumIntroTimeline(firstDrumPose, preset) {
   const nu = _arrToAngles(preset.neutralPose);
-  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   const fp = _arrToAngles(preset.frontReadyPose);
 
-  // firstDrumPose 방향으로 이미 회전 + J4 상승 → "치고 올라온" 자세
-  // t=3.85에서 팔이 spread-up 상태, t=4.00에서 내려치며 첫 박 시작
   const preLift = { ...firstDrumPose };
   Object.keys(preLift).forEach(k => {
     if (k.endsWith('4')) preLift[k] = clamp((preLift[k] ?? 0) + 0.58, 0.10, 1.70);
@@ -1373,13 +1368,12 @@ function createDrumIntroTimeline(firstDrumPose, preset) {
 
   return [
     { time: 0.00, angles: nu                       },
-    { time: 1.30, angles: as                       },  // 팔 양옆 벌림
-    { time: 2.75, angles: fp                       },  // 앞으로 들어옴
+    { time: 2.75, angles: fp                       },  // neutral에서 직접 준비 자세로
     { time: 3.00, angles: fp                       },  // 홀드
     { time: 3.30, angles: _breathePose(fp, +0.04)  },  // 숨 들이쉬기
     { time: 3.70, angles: fp                       },  // 숨 내쉬기 → 정지
     { time: 3.85, angles: preLift                  },  // 첫 드럼 방향으로 올라간 자세
-    { time: 4.00, angles: firstDrumPose            },  // ▶ 드럼 시작 (위에서 내려치기)
+    { time: 4.00, angles: firstDrumPose            },  // ▶ 드럼 시작
   ];
 }
 
