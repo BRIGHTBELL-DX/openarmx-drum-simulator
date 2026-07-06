@@ -37,28 +37,29 @@ const VEL_GLOW = {
 // ═══════════════════════════════════════════════════════════════
 //  드럼 키트 상태
 // ═══════════════════════════════════════════════════════════════
-// 어깨(암 루트) 높이 0.698m 기준 — 실제 8피스 드럼 키트 상대 높이 반영
+// 어깨(암 루트) 높이 0.698m 기준 — 실제 8피스 드럼 키트 배치 (사용자 확정값)
 // 높이 서열: 킥 0.12(바닥) < 플로어 탐 0.26 ≈ 스네어 0.28 < 하이 햇 0.37
-//           < 스몰·미들 탐 0.38(킥 위 마운트, 명확히 높음) < 라이드 0.48 < 크래쉬 0.50(최고)
+//           < 스몰·미들 탐 0.38(킥 위 마운트) < 라이드 0.48 < 크래쉬 0.50(최고)
+// X는 확정 base 값 + 0.06 (로봇~드럼 거리 확보). 최대 도달 0.66m (한계 0.795m).
 // 기울기는 DRUM_TYPES.tilt 기본값 사용 (drum.tiltDeg로 개별 오버라이드)
 let drumKit = [
   // ─ L팔 ─────────────────────────────────────────────────────────
-  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.34, y: 0.44, z:0.37} },
-  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.20, y: 0.54, z:0.50} },
-  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.42, y: 0.22, z:0.28} },
-  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.52, y: 0.10, z:0.38} },
+  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.33, y: 0.40, z:0.37} },
+  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.54, y: 0.34, z:0.50} },
+  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.38, y: 0.16, z:0.28} },
+  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.48, y: 0.10, z:0.38} },
   // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
-  { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.42, y: 0.00, z:0.12} },
+  { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.48, y: 0.00, z:0.12} },
   // ─ R팔 ─────────────────────────────────────────────────────────
-  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.50, y:-0.12, z:0.38} },
-  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.46, y:-0.34, z:0.26} },
-  { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.38, y:-0.54, z:0.48} },
+  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.56, y:-0.12, z:0.38} },
+  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.37, y:-0.21, z:0.26} },
+  { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.50, y:-0.41, z:0.48} },
 ];
 let nextDrumId = 8;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v5';
+const _DK_STORE = 'openarmx_drum_kit_v6';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
