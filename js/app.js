@@ -7,15 +7,16 @@ const PI = Math.PI;
 // ═══════════════════════════════════════════════════════════════
 //  드럼 타입 DB
 // ═══════════════════════════════════════════════════════════════
+// tilt: 헤드 기울기 기본값(°) — 로봇(연주자) 방향으로 기울어짐. drum.tiltDeg로 개별 오버라이드 가능
 const DRUM_TYPES = {
-  hihat:  { name:'하이햇',       color:'#00ddff', preDur:0.06, rebDur:0.08, style:'wrist' }, // 시안
-  snare:  { name:'스네어',       color:'#ffffff', preDur:0.08, rebDur:0.10, style:'full'  }, // 흰색
-  tom_h:  { name:'하이 탐',      color:'#ff3366', preDur:0.09, rebDur:0.11, style:'full'  }, // 핑크레드
-  tom_m:  { name:'미드 탐',      color:'#ff8800', preDur:0.09, rebDur:0.11, style:'full'  }, // 주황
-  tom_f:  { name:'플로어 탐',    color:'#bb44ff', preDur:0.10, rebDur:0.13, style:'full'  }, // 보라
-  crash:  { name:'크래시 심벌',  color:'#ffdd00', preDur:0.10, rebDur:0.16, style:'big'   }, // 골드
-  ride:   { name:'라이드 심벌',  color:'#44ff99', preDur:0.09, rebDur:0.13, style:'full'  }, // 민트
-  kick:   { name:'킥 (확장용)',  color:'#884422', preDur:0,    rebDur:0,    style:'none'  }, // 브라운
+  hihat:  { name:'하이 햇',      color:'#00ddff', preDur:0.06, rebDur:0.08, style:'wrist', tilt: 4 }, // 시안
+  snare:  { name:'스네어',       color:'#ffffff', preDur:0.08, rebDur:0.10, style:'full',  tilt: 3 }, // 흰색
+  tom_h:  { name:'스몰 탐',      color:'#ff3366', preDur:0.09, rebDur:0.11, style:'full',  tilt:15 }, // 핑크레드
+  tom_m:  { name:'미들 탐',      color:'#ff8800', preDur:0.09, rebDur:0.11, style:'full',  tilt:15 }, // 주황
+  tom_f:  { name:'플로어 탐',    color:'#bb44ff', preDur:0.10, rebDur:0.13, style:'full',  tilt: 4 }, // 보라
+  crash:  { name:'크래쉬 심벌',  color:'#ffdd00', preDur:0.10, rebDur:0.16, style:'big',   tilt:12 }, // 골드
+  ride:   { name:'라이드 심벌',  color:'#44ff99', preDur:0.09, rebDur:0.13, style:'full',  tilt:10 }, // 민트
+  kick:   { name:'킥 (베이스 드럼)', color:'#884422', preDur:0, rebDur:0,   style:'none',  tilt: 0 }, // 브라운
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -36,27 +37,27 @@ const VEL_GLOW = {
 // ═══════════════════════════════════════════════════════════════
 //  드럼 키트 상태
 // ═══════════════════════════════════════════════════════════════
-// 어깨 높이 0.698m 기준
-// 어깨 높이 0.698m 기준 실제 타격 가능 위치
-// Z 기준 0.30 ± 0.10 범위로 재배치
-// 심벌(crash·hihat·ride): 0.38~0.40  /  탐: 0.30~0.34  /  스네어·플로어탐: 0.25~0.28
+// 어깨(암 루트) 높이 0.698m 기준 — 실제 드럼 키트 상대 높이 반영
+// 심벌: 크래쉬 0.45(최고) > 라이드 0.40 > 하이 햇 0.34
+// 북:   스몰 탐 0.34 ≥ 미들 탐 0.31 > 플로어 탐 0.24 > 킥 0.15(바닥 안착)
+// 기울기는 DRUM_TYPES.tilt 기본값 사용 (drum.tiltDeg로 개별 오버라이드)
 let drumKit = [
   // ─ L팔 ─────────────────────────────────────────────────────────
-  { id:'d0', name:'하이 햇',   type:'hihat',  arm:'L', pos:{x:0.36, y: 0.42, z:0.34} },
-  { id:'d1', name:'크래시',    type:'crash',  arm:'L', pos:{x:0.18, y: 0.52, z:0.42} },
-  { id:'d2', name:'스몰 탐',   type:'tom_h',  arm:'L', pos:{x:0.52, y: 0.16, z:0.34}, tiltDeg:15 },
+  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.36, y: 0.42, z:0.34} },
+  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.18, y: 0.52, z:0.45} },
+  { id:'d2', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.52, y: 0.16, z:0.34} },
   // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
-  { id:'d3', name:'킥',        type:'kick',   arm:'kick', pos:{x:0.40, y: 0.00, z:0.20} },
+  { id:'d3', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.40, y: 0.00, z:0.15} },
   // ─ R팔 ─────────────────────────────────────────────────────────
-  { id:'d4', name:'미들 탐',   type:'tom_m',  arm:'R', pos:{x:0.48, y:-0.12, z:0.31}, tiltDeg:15 },
-  { id:'d5', name:'플로어 탐', type:'tom_f',  arm:'R', pos:{x:0.46, y:-0.34, z:0.24} },
-  { id:'d6', name:'라이드',    type:'ride',   arm:'R', pos:{x:0.40, y:-0.52, z:0.40} },
+  { id:'d4', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.48, y:-0.12, z:0.31} },
+  { id:'d5', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.46, y:-0.36, z:0.24} },
+  { id:'d6', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.40, y:-0.52, z:0.40} },
 ];
 let nextDrumId = 7;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v3';
+const _DK_STORE = 'openarmx_drum_kit_v4';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
@@ -189,7 +190,8 @@ const MAX_REACH = 0.82;
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function reachDist(drum) {
-  const root = ARM_ROOT[drum.arm];
+  // kick 등 팔 미배정 드럼은 가까운 쪽 루트 기준 (표시용)
+  const root = ARM_ROOT[drum.arm] ?? ARM_ROOT[drum.pos.y >= 0 ? 'L' : 'R'];
   return Math.sqrt(
     (drum.pos.x - root.x) ** 2 +
     (drum.pos.y - root.y) ** 2 +
@@ -1161,7 +1163,8 @@ function rebuildDrumSpheres() {
       drumGroups[drum.id] = grp;
 
       const col    = new THREE.Color(DRUM_TYPES.kick.color);
-      const kickR  = 0.18, kickD = 0.32;
+      // 22" 베이스 드럼 비율 — 단, 탐이 킥 셸 위에 얹혀 보이도록 z=0.15 안착 기준
+      const kickR  = 0.15, kickD = 0.28;
 
       // 드럼 몸통 (축 = X방향)
       const bodyGeo = new THREE.CylinderGeometry(kickR, kickR, kickD, 32);
@@ -1195,16 +1198,23 @@ function rebuildDrumSpheres() {
     drumSphereGroup.add(grp);
     drumGroups[drum.id] = grp;
 
-    // 드럼 헤드 크기
+    // 드럼 헤드 크기 — 실제 규격(인치 직경) 비율 반영, 씬 스케일 ≈ ×0.7
     const sizes = {
-      crash: [0.17, 0.008], ride: [0.16, 0.008], hihat: [0.13, 0.010],
-      snare: [0.11, 0.060], tom_h: [0.09, 0.060], tom_m: [0.10, 0.060], tom_f: [0.13, 0.060],
+      //      [반지름, 두께]
+      crash: [0.145, 0.008],   // 16" — 크래쉬
+      ride:  [0.175, 0.008],   // 20" — 심벌 중 최대
+      hihat: [0.115, 0.010],   // 13" — 심벌 중 최소
+      snare: [0.125, 0.060],   // 14"
+      tom_h: [0.090, 0.055],   // 10" 스몰 탐 (탐 중 최소)
+      tom_m: [0.105, 0.060],   // 12" 미들 탐
+      tom_f: [0.140, 0.075],   // 16" 플로어 탐 (탐 중 최대·깊음)
     };
     const [r, h] = sizes[drum.type] || [0.10, 0.050];
 
-    // 탐류 tiltDeg 기울임 서브그룹 (스탠드는 수직 유지)
+    // 헤드 기울임 서브그룹 (스탠드는 수직 유지) — 타입 기본값, drum.tiltDeg로 오버라이드
+    const tiltDeg = drum.tiltDeg ?? typeInfo.tilt ?? 0;
     const drumHead = new THREE.Group();
-    if (drum.tiltDeg) drumHead.rotation.y = -(drum.tiltDeg * Math.PI / 180);
+    if (tiltDeg) drumHead.rotation.y = -(tiltDeg * Math.PI / 180);
 
     // ── 헤드 (납작한 실린더) ─────────────────────────────────
     const headGeo = new THREE.CylinderGeometry(r, r, h, 32);
@@ -1219,12 +1229,20 @@ function rebuildDrumSpheres() {
     });
     const headMesh = new THREE.Mesh(headGeo, headMat);
     // URDF Z(위) 방향이 헤드 축이 되도록: 실린더 기본축(Y) → X축 PI/2 회전 → Z
+    // 기울기는 drumHead 그룹의 tiltDeg가 담당 (심벌 하드코딩 0.15 제거)
     headMesh.rotation.x = Math.PI / 2;
-    // 심벌은 살짝 기울임 (자연스러운 모습)
-    if (isCymbal) headMesh.rotation.z = 0.15;
     headMesh.castShadow = true;
     drumHead.add(headMesh);
     drumMeshes[drum.id] = headMesh;
+
+    // ── 하이 햇: 아래 심벌 추가 (실제 2장 겹침 구조) ─────────
+    if (drum.type === 'hihat') {
+      const botMesh = new THREE.Mesh(headGeo.clone(), headMat.clone());
+      botMesh.rotation.x = Math.PI / 2;
+      botMesh.position.z = -0.022;
+      botMesh.material.opacity = 0.50;
+      drumHead.add(botMesh);
+    }
 
     // ── 헤드 윗면 링 (타격 위치 표시) ────────────────────────
     const ringGeo = new THREE.RingGeometry(r * 0.35, r * 0.92, 32);
@@ -2458,9 +2476,10 @@ function renderDrumList() {
 
   el.innerHTML = drumKit.map(drum => {
     const typeInfo  = DRUM_TYPES[drum.type] || DRUM_TYPES.snare;
+    const isKick    = drum.type === 'kick';
     const dist      = reachDist(drum);
-    const reachCls  = dist > MAX_REACH ? 'reach-err' : dist > MAX_REACH * 0.88 ? 'reach-warn' : 'reach-ok';
-    const reachTxt  = dist > MAX_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
+    const reachCls  = isKick ? 'reach-ok' : dist > MAX_REACH ? 'reach-err' : dist > MAX_REACH * 0.88 ? 'reach-warn' : 'reach-ok';
+    const reachTxt  = isKick ? '표시 전용 (팔 미사용)' : dist > MAX_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
 
     return `
 <div class="drum-item" data-id="${drum.id}">
@@ -2479,10 +2498,12 @@ function renderDrumList() {
     <select class="drum-type-sel" onchange="updateDrumProp('${drum.id}','type',this.value)">
       ${typeOpts.replace(`value="${drum.type}"`, `value="${drum.type}" selected`)}
     </select>
-    <select class="drum-arm-sel" onchange="updateDrumProp('${drum.id}','arm',this.value)">
+    ${isKick
+      ? `<select class="drum-arm-sel" disabled title="킥은 표시 전용 — 팔이 연주하지 않음"><option selected>표시용</option></select>`
+      : `<select class="drum-arm-sel" onchange="updateDrumProp('${drum.id}','arm',this.value)">
       <option value="L" ${drum.arm==='L'?'selected':''}>왼팔 L</option>
       <option value="R" ${drum.arm==='R'?'selected':''}>오른팔 R</option>
-    </select>
+    </select>`}
   </div>
   <div class="drum-pos-row">
     <div class="drum-pos-group">
@@ -2510,7 +2531,7 @@ function renderDrumList() {
         oninput="updateDrumPos('${drum.id}','z',+this.value);syncSlider(this,'z')">
     </div>
   </div>
-  <span class="drum-reach-badge ${reachCls}">${reachTxt} ${drum.type==='kick'?'(확장)':''}</span>
+  <span class="drum-reach-badge ${reachCls}">${reachTxt}</span>
   <div class="drag-hint">뷰포트에서 드래그로 위치 이동 가능</div>
 </div>`;
   }).join('');
@@ -2529,6 +2550,11 @@ window.updateDrumProp = function (id, prop, val) {
   const drum = drumKit.find(d => d.id === id);
   if (!drum) return;
   drum[prop] = val;
+  // 타입 ↔ kick 전환 시 arm 정합성 보정 (kick은 팔 미배정)
+  if (prop === 'type') {
+    if (val === 'kick') drum.arm = 'kick';
+    else if (drum.arm !== 'L' && drum.arm !== 'R') drum.arm = drum.pos.y >= 0 ? 'L' : 'R';
+  }
   saveDrumKit();
   renderDrumList();
   rebuildDrumSpheres();
@@ -2546,11 +2572,12 @@ window.updateDrumPos = function (id, axis, val) {
   // reach badge만 갱신 (전체 재렌더 방지)
   const item = document.querySelector(`.drum-item[data-id="${id}"]`);
   if (item) {
+    const isKick   = drum.type === 'kick';
     const dist     = reachDist(drum);
     const badge    = item.querySelector('.drum-reach-badge');
     if (badge) {
-      badge.className = 'drum-reach-badge ' + (dist > MAX_REACH ? 'reach-err' : dist > MAX_REACH * 0.88 ? 'reach-warn' : 'reach-ok');
-      badge.textContent = (dist > MAX_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`) + (drum.type==='kick'?' (확장)':'');
+      badge.className = 'drum-reach-badge ' + (isKick ? 'reach-ok' : dist > MAX_REACH ? 'reach-err' : dist > MAX_REACH * 0.88 ? 'reach-warn' : 'reach-ok');
+      badge.textContent = isKick ? '표시 전용 (팔 미사용)' : dist > MAX_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
     }
     // 동기: 숫자입력 → 슬라이더
     const inps    = item.querySelectorAll('.drum-pos-inp');

@@ -28,8 +28,9 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 def open_browser():
     webbrowser.open(f'http://localhost:{PORT}/drum_simulator/')
 
-class ReusableTCPServer(socketserver.TCPServer):
+class ReusableTCPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
 if __name__ == '__main__':
     os.chdir(SERVE_DIR)
