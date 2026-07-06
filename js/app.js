@@ -37,27 +37,28 @@ const VEL_GLOW = {
 // ═══════════════════════════════════════════════════════════════
 //  드럼 키트 상태
 // ═══════════════════════════════════════════════════════════════
-// 어깨(암 루트) 높이 0.698m 기준 — 실제 드럼 키트 상대 높이 반영
-// 심벌: 크래쉬 0.45(최고) > 라이드 0.40 > 하이 햇 0.34
-// 북:   스몰 탐 0.34 ≥ 미들 탐 0.31 > 플로어 탐 0.24 > 킥 0.15(바닥 안착)
+// 어깨(암 루트) 높이 0.698m 기준 — 실제 8피스 드럼 키트 상대 높이 반영
+// 높이 서열: 킥 0.12(바닥) < 플로어 탐 0.26 ≈ 스네어 0.28 < 하이 햇 0.37
+//           < 스몰·미들 탐 0.38(킥 위 마운트, 명확히 높음) < 라이드 0.48 < 크래쉬 0.50(최고)
 // 기울기는 DRUM_TYPES.tilt 기본값 사용 (drum.tiltDeg로 개별 오버라이드)
 let drumKit = [
   // ─ L팔 ─────────────────────────────────────────────────────────
-  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.36, y: 0.42, z:0.34} },
-  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.18, y: 0.52, z:0.45} },
-  { id:'d2', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.52, y: 0.16, z:0.34} },
+  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.34, y: 0.44, z:0.37} },
+  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.20, y: 0.54, z:0.50} },
+  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.42, y: 0.22, z:0.28} },
+  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.52, y: 0.10, z:0.38} },
   // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
-  { id:'d3', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.40, y: 0.00, z:0.15} },
+  { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.42, y: 0.00, z:0.12} },
   // ─ R팔 ─────────────────────────────────────────────────────────
-  { id:'d4', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.48, y:-0.12, z:0.31} },
-  { id:'d5', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.46, y:-0.36, z:0.24} },
-  { id:'d6', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.40, y:-0.52, z:0.40} },
+  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.50, y:-0.12, z:0.38} },
+  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.46, y:-0.34, z:0.26} },
+  { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.38, y:-0.54, z:0.48} },
 ];
-let nextDrumId = 7;
+let nextDrumId = 8;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v4';
+const _DK_STORE = 'openarmx_drum_kit_v5';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
@@ -1163,8 +1164,8 @@ function rebuildDrumSpheres() {
       drumGroups[drum.id] = grp;
 
       const col    = new THREE.Color(DRUM_TYPES.kick.color);
-      // 22" 베이스 드럼 비율 — 단, 탐이 킥 셸 위에 얹혀 보이도록 z=0.15 안착 기준
-      const kickR  = 0.15, kickD = 0.28;
+      // 킥은 낮고 컴팩트하게 — 탐 마운트 높이(0.38)와의 대비 강조, z=0.12 바닥 안착
+      const kickR  = 0.12, kickD = 0.24;
 
       // 드럼 몸통 (축 = X방향)
       const bodyGeo = new THREE.CylinderGeometry(kickR, kickR, kickD, 32);
@@ -1203,8 +1204,8 @@ function rebuildDrumSpheres() {
       //      [반지름, 두께]
       crash: [0.145, 0.008],   // 16" — 크래쉬
       ride:  [0.175, 0.008],   // 20" — 심벌 중 최대
-      hihat: [0.115, 0.010],   // 13" — 심벌 중 최소
-      snare: [0.125, 0.060],   // 14"
+      hihat: [0.100, 0.010],   // 13" — 심벌 중 최소 (크래쉬보다 확실히 작게)
+      snare: [0.125, 0.055],   // 14" (얕은 셸)
       tom_h: [0.090, 0.055],   // 10" 스몰 탐 (탐 중 최소)
       tom_m: [0.105, 0.060],   // 12" 미들 탐
       tom_f: [0.140, 0.075],   // 16" 플로어 탐 (탐 중 최대·깊음)
