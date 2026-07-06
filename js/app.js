@@ -41,20 +41,22 @@ const VEL_GLOW = {
 // Z 기준 0.30 ± 0.10 범위로 재배치
 // 심벌(crash·hihat·ride): 0.38~0.40  /  탐: 0.30~0.34  /  스네어·플로어탐: 0.25~0.28
 let drumKit = [
-  { id:'d0', name:'크래시 L',  type:'crash',  arm:'L', pos:{x:0.19, y: 0.47, z:0.38} },
-  { id:'d1', name:'하이햇',    type:'hihat',  arm:'L', pos:{x:0.38, y: 0.34, z:0.35} },
-  { id:'d2', name:'하이 탐',   type:'tom_h',  arm:'L', pos:{x:0.55, y: 0.25, z:0.33} },
-  { id:'d3', name:'미드 탐',   type:'tom_m',  arm:'L', pos:{x:0.42, y: 0.04, z:0.30} },
-  { id:'d4', name:'스네어',    type:'snare',  arm:'R', pos:{x:0.42, y:-0.15, z:0.28} },
-  { id:'d5', name:'플로어 탐', type:'tom_f',  arm:'R', pos:{x:0.50, y:-0.29, z:0.25} },
-  { id:'d6', name:'라이드',    type:'ride',   arm:'R', pos:{x:0.37, y:-0.52, z:0.35} },
-  { id:'d7', name:'크래시 R',  type:'crash',  arm:'R', pos:{x:0.12, y:-0.53, z:0.38} },
+  // ─ L팔 ─────────────────────────────────────────────────────────
+  { id:'d0', name:'하이 햇',   type:'hihat',  arm:'L', pos:{x:0.36, y: 0.42, z:0.34} },
+  { id:'d1', name:'크래시',    type:'crash',  arm:'L', pos:{x:0.18, y: 0.52, z:0.42} },
+  { id:'d2', name:'스몰 탐',   type:'tom_h',  arm:'L', pos:{x:0.52, y: 0.16, z:0.34}, tiltDeg:15 },
+  // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
+  { id:'d3', name:'킥',        type:'kick',   arm:'kick', pos:{x:0.40, y: 0.00, z:0.20} },
+  // ─ R팔 ─────────────────────────────────────────────────────────
+  { id:'d4', name:'미들 탐',   type:'tom_m',  arm:'R', pos:{x:0.48, y:-0.12, z:0.31}, tiltDeg:15 },
+  { id:'d5', name:'플로어 탐', type:'tom_f',  arm:'R', pos:{x:0.46, y:-0.34, z:0.24} },
+  { id:'d6', name:'라이드',    type:'ride',   arm:'R', pos:{x:0.40, y:-0.52, z:0.40} },
 ];
-let nextDrumId = 8;
+let nextDrumId = 7;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v2';
+const _DK_STORE = 'openarmx_drum_kit_v3';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
@@ -1151,7 +1153,38 @@ function rebuildDrumSpheres() {
   Object.keys(drumGroups).forEach(k => delete drumGroups[k]);
 
   drumKit.forEach(drum => {
-    if (drum.type === 'kick') return;
+    // ── 킥 드럼: 바닥에 눕혀진 베이스 드럼 (표시 전용) ──────
+    if (drum.type === 'kick') {
+      const grp = new THREE.Group();
+      grp.position.set(drum.pos.x, drum.pos.y, drum.pos.z);
+      drumSphereGroup.add(grp);
+      drumGroups[drum.id] = grp;
+
+      const col    = new THREE.Color(DRUM_TYPES.kick.color);
+      const kickR  = 0.18, kickD = 0.32;
+
+      // 드럼 몸통 (축 = X방향)
+      const bodyGeo = new THREE.CylinderGeometry(kickR, kickR, kickD, 32);
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: col, roughness: 0.60, metalness: 0.10, transparent: true, opacity: 0.70,
+      });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.rotation.z = -Math.PI / 2;
+      grp.add(body);
+
+      // 앞면 드럼헤드 (robot 방향)
+      const faceGeo = new THREE.CylinderGeometry(kickR * 0.97, kickR * 0.97, 0.012, 32);
+      const faceMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color('#cccccc'), roughness: 0.55, metalness: 0.05,
+        transparent: true, opacity: 0.80,
+      });
+      const face = new THREE.Mesh(faceGeo, faceMat);
+      face.rotation.z = -Math.PI / 2;
+      face.position.x = -(kickD / 2 + 0.005);
+      grp.add(face);
+      return;
+    }
+
     const typeInfo = DRUM_TYPES[drum.type];
     const col      = new THREE.Color(typeInfo.color);
     const isCymbal = ['crash', 'ride', 'hihat'].includes(drum.type);
@@ -1168,6 +1201,10 @@ function rebuildDrumSpheres() {
       snare: [0.11, 0.060], tom_h: [0.09, 0.060], tom_m: [0.10, 0.060], tom_f: [0.13, 0.060],
     };
     const [r, h] = sizes[drum.type] || [0.10, 0.050];
+
+    // 탐류 tiltDeg 기울임 서브그룹 (스탠드는 수직 유지)
+    const drumHead = new THREE.Group();
+    if (drum.tiltDeg) drumHead.rotation.y = -(drum.tiltDeg * Math.PI / 180);
 
     // ── 헤드 (납작한 실린더) ─────────────────────────────────
     const headGeo = new THREE.CylinderGeometry(r, r, h, 32);
@@ -1186,7 +1223,7 @@ function rebuildDrumSpheres() {
     // 심벌은 살짝 기울임 (자연스러운 모습)
     if (isCymbal) headMesh.rotation.z = 0.15;
     headMesh.castShadow = true;
-    grp.add(headMesh);
+    drumHead.add(headMesh);
     drumMeshes[drum.id] = headMesh;
 
     // ── 헤드 윗면 링 (타격 위치 표시) ────────────────────────
@@ -1197,7 +1234,9 @@ function rebuildDrumSpheres() {
     const ring = new THREE.Mesh(ringGeo, ringMat);
     // RingGeometry는 기본으로 XY 평면(URDF 수평면)에 있어서 회전 불필요
     ring.position.z = h / 2 + 0.001;
-    grp.add(ring);
+    drumHead.add(ring);
+
+    grp.add(drumHead);
 
     // ── 스탠드 (얇은 폴, 바닥 방향) ──────────────────────────
     const standH   = Math.max(0.05, drum.pos.z - 0.02);
