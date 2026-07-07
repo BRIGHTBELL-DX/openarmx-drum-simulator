@@ -324,58 +324,7 @@ function _pureFKStick(jointAngles, arm) {
   };
 }
 
-// ── 2점 IK: 스틱 팁 + 버트 동시 타겟 ────────────────────────────
-// 팁 위치와 스틱 방향(버트 = 팁 - 0.40·dir)을 함께 풀어
-// 위치 전용 IK의 자세 불확정성(스틱이 옆·위를 향하는 국소해) 제거
-function _solveIK2pt(arm, target, dirDesired, initAngles, j7, extraLimits) {
-  const LIMITS = { ..._IK_LIMITS };
-  if (extraLimits) Object.assign(LIMITS, extraLimits);
-
-  const JK = [1,2,3,4,5,6].map(i => `${arm}${i}`);
-  const a  = { [`${arm}7`]: j7 };
-  JK.forEach(k => {
-    const [lo, hi] = LIMITS[k] ?? [-PI, PI];
-    a[k] = clamp(initAngles[k] ?? 0, lo, hi);
-  });
-
-  const T = new THREE.Vector3(target.x, target.y, target.z);
-  const B = T.clone().addScaledVector(dirDesired, -(STICK.fwd + STICK.back));
-  const W = 0.6;   // 버트(방향) 가중
-  const dt = 0.004;
-  const cost = (ang) => {
-    const p = _pureFKStick(ang, arm);
-    return T.distanceToSquared(p.tip) + W * B.distanceToSquared(p.butt);
-  };
-
-  for (let it = 0; it < 140; it++) {
-    const c0 = cost(a);
-    if (Math.sqrt(c0) < 0.005) break;
-    const grads = []; let gSq = 0;
-    for (let i = 0; i < JK.length; i++) {
-      const ap = { ...a }; ap[JK[i]] += dt;
-      const g = (c0 - cost(ap)) / dt;   // 하강 방향
-      grads.push(g); gSq += g * g;
-    }
-    const gNorm = Math.sqrt(gSq) + 1e-8;
-    const step  = Math.min(0.05, Math.sqrt(c0) * 0.5) / gNorm;
-    for (let i = 0; i < JK.length; i++) {
-      const [lo, hi] = LIMITS[JK[i]] ?? [-PI, PI];
-      a[JK[i]] = clamp(a[JK[i]] + grads[i] * step, lo, hi);
-    }
-  }
-  a[`${arm}7`] = j7;
-  a._errTip = T.distanceTo(_pureFKStick(a, arm).tip);
-  return a;
-}
-
-// 타격 방향 후보 [β, δ] — β: 루트→드럼 방위에서 몸중심 쪽 회전(°), δ: 하향 피치(°)
-// dirSign=+1 실측 검증(오프라인 2점 IK 그리드서치)으로 확정된 범위
-const STICK_CANDIDATES = [];
-for (const pitch of [30, 35, 40, 45, 50, 55, 60])
-  for (const beta of [-30, -15, 0, 15, 30, 45, 60])
-    STICK_CANDIDATES.push([beta, pitch]);
-
-// ── 해석적 초기 추정치 (수렴 속도용) ───────────────────────────
+// ── 해석적 초기 추정치 (J2~J6 베이스라인 — 부드러운 함수, 후보 탐색 없음) ──
 function _analyticGuess(drum, phase) {
   const s    = drum.arm;
   const root = ARM_ROOT[s];
@@ -421,12 +370,16 @@ function _analyticGuess(drum, phase) {
   return base;
 }
 
-// ── 드럼 위치 → 타격 포즈 (드럼채 2점 IK 기반) ─────────────────
-// strike : 스틱 팁이 드럼 헤드에 정확히 도달 (2점 IK — 팁 위치 + 스틱 방향)
-// raise  : strike와 동일한 팔 자세 + 손목(J7)만 코킹 → 팁이 드럼 위로 들림
-// rebound: strike 자세 + J7 부분 코킹 (타격 후 반동)
-// → 팔(J1~J6)은 고정, 손목 스냅이 타격을 만드는 드러머 모델
-//   (raise↔strike 보간이 곧 손목 스윙 = 관절 공간 연속성 완벽 보장)
+// ── 드럼 위치 → 타격 포즈 (검증된 6DOF IK + 스틱 오프셋 보정) ──
+// J1~J6은 기존에 잘 동작하던 _solveIK(전체 수치 IK, 부드럽고 절제된 결과)를
+// 그대로 사용하고, "손목이 아니라 스틱 팁이 드럼에 닿아야 한다"는 조건만
+// 외곽 반복(tool-offset iteration)으로 보정한다:
+//   1) 목표점(proxy)으로 J1~J6을 풀어 손목을 위치시킨다
+//   2) 그 손목 자세에서 스틱 팁이 실제로 어디 있는지 계산한다
+//   3) 팁과 드럼의 오차만큼 proxy를 이동시켜 다시 푼다 (2~3회면 수렴)
+// → J7은 타격 위상(raise/strike/rebound)의 손목 스냅 값으로 고정.
+//   즉 "팔은 스틱 없이 치던 자세 그대로, 스틱 길이만큼만 손목을 당겨서
+//   보정"하는 모델이라 기존 시스템처럼 부드럽고 절제된 자세가 유지된다.
 
 // 스트라이크 솔브 캐시 — 드럼 위치·강도가 같으면 재계산 없음 (빠른 박자 대응)
 const _strikeSolveCache = new Map();
@@ -445,36 +398,83 @@ function _solveStickStrike(drum, vel) {
   const hit = _strikeSolveCache.get(key);
   if (hit) return hit;
 
-  const root     = ARM_ROOT[s];
-  const target   = { x: drum.pos.x, y: drum.pos.y, z: drum.pos.z };
-  const az       = Math.atan2(target.y - root.y, target.x - root.x);
-  const betaSign = s === 'L' ? -1 : +1;   // 몸 중심 쪽으로 회전
+  const isCymbal = ['crash', 'ride', 'hihat'].includes(drum.type);
 
-  // J1 뒤로 스윙 허용 (L: +, R: -) — 팔이 뒤로 빠지고 스틱이 앞으로 나가는 자세
-  const extra = {};
-  extra[`${s}1`] = s === 'L' ? [-2.0, 1.6] : [-1.6, 2.0];
-
-  let best = null;
-  for (const [beta, pitch] of STICK_CANDIDATES) {
-    const az2  = az + betaSign * beta * PI / 180;
-    const dRad = pitch * PI / 180;
-    const dir  = new THREE.Vector3(
-      Math.cos(az2) * Math.cos(dRad),
-      Math.sin(az2) * Math.cos(dRad),
-      -Math.sin(dRad));
-    // TCP 예상 위치를 가상 드럼으로 → 해석적 초기 추정
-    const proxy = { x: target.x - 0.20 * dir.x,
-                    y: target.y - 0.20 * dir.y,
-                    z: target.z + 0.20 * Math.sin(dRad) };
-    const guess = _analyticGuess({ ...drum, pos: proxy }, 'strike');
-    const init  = {};
-    [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
-    const sol = _solveIK2pt(s, target, dir, init, j7, extra);
-    if (!best || sol._errTip < best._errTip) best = sol;
-    if (sol._errTip < 0.006) break;   // 후보 캐스케이드: 수렴 즉시 채택
+  // 관절 한계 — J4 최소 굽힘 정도만 강제하고, J1·J2·J6은 자유롭게 둔다.
+  // (J1을 특정 방향으로 강제하면 "1번은 작게, 필요한 만큼만" 요구와 충돌한다)
+  const extraLimits = {};
+  if (isCymbal) {
+    extraLimits[`${s}4`] = [0.28, 1.70];
+  } else {
+    const ar = ARM_ROOT[s];
+    const dn = clamp(
+      Math.sqrt((drum.pos.x-ar.x)**2 + (drum.pos.y-ar.y)**2 + (drum.pos.z-ar.z)**2) / MAX_REACH,
+      0, 1);
+    extraLimits[`${s}4`] = [clamp((1 - dn) * 2.5, 0.22, 1.20), 1.70];
+  }
+  // 측면 드럼: 어깨를 옆으로 펼치는 분기로 유도 — 팔이 안쪽으로 꼬여
+  // J6에 큰 보정이 몰리는 국소해를 피한다
+  const lateralY = (s === 'L' ? 1 : -1) * drum.pos.y;
+  if (lateralY > 0.18) {
+    if (s === 'L') extraLimits['L2'] = [-1.65, -0.40];
+    else           extraLimits['R2'] = [ 0.40,  1.65];
   }
 
-  const result = { pose: best, ok: best._errTip < 0.008, j7Strike: j7 };
+  // 도구-오프셋 보정: 손목이 아니라 "손목 + 0.30m 스틱 팁"이 드럼에 닿도록
+  // 목표점을 반복 이동시키며 기존 검증된 _solveIK를 재사용.
+  // proxy를 오차만큼 그대로 옮기면 팔 전체 배치가 크게 바뀌어(특히 J1 방위각)
+  // 스틱 방향도 같이 흔들려 발산하므로, 감쇠(0.5)를 걸고 최선의 결과를 추적한다.
+  //
+  // J5(전완 롤)는 스틱 팁 위치에 거의 영향을 주지 않아 위치기반 그레이디언트가
+  // 0에 가깝다 → 초기값에서 거의 안 움직인다. 그래서 여러 J5 시드로 각각 풀어本
+  // "J1·J6은 작게, J5가 손목 방향을 담당" 하는 자연스러운 해를 고른다.
+  const target = new THREE.Vector3(drum.pos.x, drum.pos.y, drum.pos.z);
+  const j5Sign = s === 'L' ? -1 : 1;
+  const J5_SEEDS = [0, 0.7, 1.1, 1.4, -0.7].map(v => v * j5Sign);
+
+  // raise 위상의 J7 (computeStrikePose와 동일 공식, medium velocity 기준)
+  // — 후보 평가용. 관절 크기 자체엔 목표가 없다(가까운/먼 드럼 모두 필요한
+  // 만큼 J1~J6을 움직여도 됨). 유일한 기준은 "J7 스윙이 하늘→바닥으로
+  // 얼마나 수직에 가까운가" — 몸 안쪽으로 스치지 않는 자연스러운 타격.
+  const raiseJ7Phase = (s === 'L' ? -0.86 : 0.86) * styleScale;
+  const raiseJ7 = j7 + (raiseJ7Phase - j7) * 0.8;
+
+  let overallBest = null, overallScore = -Infinity;
+  for (const j5Seed of J5_SEEDS) {
+    let proxy = { x: drum.pos.x, y: drum.pos.y, z: drum.pos.z };
+    let best = null, bestErr = Infinity, init = null;
+    const DAMPING = 0.5;
+    for (let outer = 0; outer < 14; outer++) {
+      if (!init) {
+        const guess = _analyticGuess({ ...drum, pos: proxy }, 'strike');
+        init = {};
+        [1,2,3,4,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
+        init[`${s}5`] = j5Seed;
+      }
+      const sol = _solveIK(s, proxy, init, j7,
+                            Object.keys(extraLimits).length ? extraLimits : undefined);
+      [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = sol[`${s}${i}`]; });   // 다음 반복 웜스타트
+      const tip = _pureFKStick(sol, s).tip;
+      const err = target.clone().sub(tip);
+      const errLen = err.length();
+      if (errLen < bestErr) { bestErr = errLen; best = sol; }
+      if (errLen < 0.004) break;
+      proxy = { x: proxy.x + err.x * DAMPING, y: proxy.y + err.y * DAMPING, z: proxy.z + err.z * DAMPING };
+    }
+    if (bestErr >= 0.015) continue;   // 이 시드는 수렴 실패 → 제외
+
+    // raise→strike 스윙 벡터의 수직성 평가 (같은 J1~J6, J7만 raise↔strike)
+    const raiseTip  = _pureFKStick({ ...best, [`${s}7`]: raiseJ7 }, s).tip;
+    const strikeTip = _pureFKStick(best, s).tip;
+    const swing = strikeTip.clone().sub(raiseTip);
+    const swingLen = swing.length();
+    const verticality = swingLen > 1e-4 ? (-swing.z / swingLen) : -1;   // 1=완전 수직 하강
+    if (verticality > overallScore) { overallScore = verticality; overallBest = best; overallBest._err = bestErr; }
+  }
+  // 모든 시드가 수렴 실패한 극단적 경우에만 폴백(첫 시드 결과라도 사용)
+  const solved  = overallBest ?? _analyticGuess(drum, 'strike');
+  const errTip  = overallBest ? overallBest._err : 0.999;
+  const result = { pose: solved, ok: errTip < 0.015, j7Strike: j7 };
   if (_strikeSolveCache.size > 300) _strikeSolveCache.clear();
   _strikeSolveCache.set(key, result);
   return result;
