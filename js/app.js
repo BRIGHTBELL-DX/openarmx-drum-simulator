@@ -552,6 +552,24 @@ function _getReadyPoses() {
   };
 }
 
+const _SIDE_KEYS = { L: ['L1','L2','L3','L4','L5','L6','L7'], R: ['R1','R2','R3','R4','R5','R6','R7'] };
+function _sidePick(pose, side) {
+  const out = {};
+  _SIDE_KEYS[side].forEach(k => { out[k] = pose[k]; });
+  return out;
+}
+
+/** 해당 팔의 가장 이른 타격 이벤트(드럼·세기) — 킥 제외. 이벤트 없으면 null */
+function _firstArmHit(arm) {
+  let best = null;
+  timelineEvents.forEach(evt => {
+    const drum = drumKit.find(d => d.id === evt.drumId);
+    if (!drum || drum.type === 'kick' || drum.arm !== arm) return;
+    if (!best || evt.beat < best.evt.beat) best = { evt, drum };
+  });
+  return best ? { drum: best.drum, vel: best.evt.vel ?? 'medium' } : null;
+}
+
 function buildKeyframes() {
   const beatDur    = 60 / bpm;
   const totalBeats = totalBars * beatsPerBar;
@@ -1522,37 +1540,33 @@ function _breathePose(base, amp) {
 /**
  * 인트로 4초 — armSpreadPose 경유 (스틱 충돌 안전)
  *
- *  0.00s: neutral         — 시작
- *  1.30s: armSpreadPose   — 양팔 옆으로 최대 벌림 (충돌 없는 후퇴)
- *  2.75s: frontReadyPose  — 앞으로 들어오며 준비
- *  3.00s: frontReadyPose  — 홀드
+ *  0.00s: neutral          — 시작
+ *  1.30s: armSpreadPose    — 양팔 옆으로 최대 벌림 (충돌 없는 후퇴)
+ *  2.75s: firstRaisePose   — 첫 드럼을 향해 회전 + 코킹(raise, J7)까지 완료
+ *  3.00s: firstRaisePose   — 홀드
  *  3.30s: breathe in (+0.04)
- *  3.70s: breathe out     — 정지
- *  4.00s: firstDrumPose   — ▶ 드럼 시작
+ *  3.70s: breathe out      — 정지 (firstRaisePose 그대로)
+ *  4.00s: firstStrikePose  — ▶ 손목(J7)만 움직여 내려치기 — 일반 타격과 동일한 수직 스냅
+ *
+ *  raise→strike 구간은 J1~J6이 firstRaisePose와 완전히 동일하고 J7만 달라지므로,
+ *  두 번째 타격부터의 raise→strike와 똑같은 수직 궤적으로 보인다.
+ *  팔 방향 전환(J1~J6)이라는 "무거운" 움직임은 1.30~3.70s의 여유 구간에서 끝내고,
+ *  마지막 0.3초는 순수 손목 스냅만 남기는 것이 핵심.
  *
  *  smoothstep 보간: 각 구간이 S곡선으로 자연스럽게 연결됨
  */
-function createDrumIntroTimeline(firstDrumPose, preset) {
+function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset) {
   const nu = _arrToAngles(preset.neutralPose);
   const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
-  const fp = _arrToAngles(preset.frontReadyPose);
-
-  // firstDrumPose 방향으로 이미 회전 + J4 상승 → "치고 올라온" 자세
-  // t=3.85에서 팔이 spread-up 상태, t=4.00에서 내려치며 첫 박 시작
-  const preLift = { ...firstDrumPose };
-  Object.keys(preLift).forEach(k => {
-    if (k.endsWith('4')) preLift[k] = clamp((preLift[k] ?? 0) + 0.58, 0.10, 1.70);
-  });
 
   return [
-    { time: 0.00, angles: nu                       },
-    { time: 1.30, angles: as                       },  // 팔 양옆 벌림
-    { time: 2.75, angles: fp                       },  // 앞으로 들어옴
-    { time: 3.00, angles: fp                       },  // 홀드
-    { time: 3.30, angles: _breathePose(fp, +0.04)  },  // 숨 들이쉬기
-    { time: 3.70, angles: fp                       },  // 숨 내쉬기 → 정지
-    { time: 3.85, angles: preLift                  },  // 첫 드럼 방향으로 올라간 자세
-    { time: 4.00, angles: firstDrumPose            },  // ▶ 드럼 시작 (위에서 내려치기)
+    { time: 0.00, angles: nu                                 },
+    { time: 1.30, angles: as                                 },  // 팔 양옆 벌림
+    { time: 2.75, angles: firstRaisePose                     },  // 첫 드럼 방향으로 회전 + 코킹
+    { time: 3.00, angles: firstRaisePose                     },  // 홀드
+    { time: 3.30, angles: _breathePose(firstRaisePose, +0.04)},  // 숨 들이쉬기
+    { time: 3.70, angles: firstRaisePose                     },  // 숨 내쉬기 → 정지
+    { time: 4.00, angles: firstStrikePose                    },  // ▶ 손목 스냅으로 내려치기
   ];
 }
 
@@ -1605,16 +1619,31 @@ function buildTimelineWithIntroOutro(options = {}) {
   let finalTL = [];
 
   if (includeIntro) {
-    // firstPose: 첫 번째 '실제 드럼 동작' 포즈 (NEUTRAL 제외)
-    // drumTL[0]은 보통 NEUTRAL(all 0) → 이걸 쓰면 frontReadyPose → NEUTRAL로 팔이 내려가는 문제 발생
-    const firstNonNeutral = drumTL.find(kf =>
-      _JOINT_KEYS14.some(k => Math.abs(kf.angles[k] ?? 0) > 0.01)
-    );
-    const firstPose = firstNonNeutral?.angles ?? _arrToAngles(preset.frontReadyPose);
+    // 각 팔의 실제 첫 타격 드럼에 대해 raise/strike 포즈를 직접 계산
+    // (해당 팔이 아예 연주하지 않으면 frontReadyPose로 대기)
+    const { L: READY_L, R: READY_R } = _getReadyPoses();
+    const hitL = _firstArmHit('L');
+    const hitR = _firstArmHit('R');
+    const raiseL  = hitL ? computeStrikePose(hitL.drum, 'raise',  hitL.vel) : null;
+    const strikeL = hitL ? computeStrikePose(hitL.drum, 'strike', hitL.vel) : null;
+    const raiseR  = hitR ? computeStrikePose(hitR.drum, 'raise',  hitR.vel) : null;
+    const strikeR = hitR ? computeStrikePose(hitR.drum, 'strike', hitR.vel) : null;
 
-    const intro   = createDrumIntroTimeline(firstPose, preset);
+    const firstRaisePose = {
+      ...READY_L, ...READY_R,
+      ...(raiseL ? _sidePick(raiseL, 'L') : {}),
+      ...(raiseR ? _sidePick(raiseR, 'R') : {}),
+    };
+    const firstStrikePose = {
+      ...firstRaisePose,
+      ...(strikeL ? _sidePick(strikeL, 'L') : {}),
+      ...(strikeR ? _sidePick(strikeR, 'R') : {}),
+    };
+
+    const intro   = createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset);
     const shifted = shiftTimeline(drumTL, 4.0);
-    // shifted[0] = NEUTRAL at t=4.0 → intro 마지막이 firstPose로 대체하므로 제거(slice(1))
+    // shifted[0] = drumTL의 첫 프레임(대개 preLift/strike 혼재) → intro 마지막(firstStrikePose)이
+    // 이를 대체하므로 제거(slice(1))
     finalTL = [...intro, ...shifted.slice(1)];
   } else {
     finalTL = [...drumTL];
