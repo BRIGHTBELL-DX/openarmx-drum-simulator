@@ -662,6 +662,18 @@ function buildKeyframes() {
           peak[k] = v;
         });
         addPose(poseMap, peakT, peak, sideKeys);
+
+        // 피크 이후 다음 타격 직전까지 남는 시간 안에서 raise(B)를 한 번 더 찍는다.
+        // 이렇게 하면 다른 드럼으로 넘어갈 때도 마지막 진입 구간만큼은 J1~J6 고정 +
+        // J7만 움직이는 손목 스냅이 되어 수직으로 내려친다(연타 시의 raise→strike와 동일 원리).
+        // 이게 없으면 피크(중간 평균 자세)에서 곧장 strike(B)로 가며 여러 조인트가
+        // 동시에 움직여 "비스듬히 빗겨치는" 느낌이 난다.
+        const availGap  = next.t - peakT;
+        const raiseLead = Math.min(preDur, availGap * 0.7);
+        const raiseBT   = parseFloat((next.t - raiseLead).toFixed(3));
+        if (raiseLead > 0.03 && raiseBT > peakT) {
+          addPose(poseMap, raiseBT, posB, sideKeys);
+        }
       }
     });
   });
