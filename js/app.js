@@ -2692,8 +2692,27 @@ window.autoGeneratePattern = function () {
              : STYLES;
   const style = pool[Math.floor(Math.random() * pool.length)];
 
+  // 백비트(2·4박)는 실제 드럼처럼 항상 스네어가 담당하도록 강제 보정.
+  // 스타일이 그 자리에 다른 드럼(하이햇 등)을 이미 놓았어도 스네어로 교체하고,
+  // 비어 있으면 새로 추가한다 — 다른 팔(예: 라이드)의 백비트 히트는 그대로 둔다.
+  function forceSnareBackbeat(bs) {
+    const snareDrum = drumKit.find(d => d.type === 'snare');
+    if (!snareDrum) return;
+    backOff.forEach(b => {
+      const beat = parseFloat((bs + b).toFixed(3));
+      const idx = timelineEvents.findIndex(e => {
+        const d = drumKit.find(x => x.id === e.drumId);
+        return d?.arm === snareDrum.arm && Math.abs(e.beat - beat) < 0.01;
+      });
+      if (idx >= 0) timelineEvents[idx].drumId = snareDrum.id;
+      else safeAdd(snareDrum.id, beat);
+    });
+  }
+
   for (let bar = 0; bar < totalBars; bar++) {
-    style.gen(bar * bpb + 1, bar);
+    const bs = bar * bpb + 1;
+    style.gen(bs, bar);
+    if (complexityMode !== 'L') forceSnareBackbeat(bs);   // L(단순)은 고정 2드럼 유지가 목적
   }
 
   // 오프닝 악센트 — 크래시로 카운트인 느낌. L(단순) 모드는 드럼 수를 최소로
