@@ -426,8 +426,11 @@ function _solveStickStrike(drum, vel) {
   // 스틱 방향도 같이 흔들려 발산하므로, 감쇠(0.5)를 걸고 최선의 결과를 추적한다.
   //
   // J5(전완 롤)는 스틱 팁 위치에 거의 영향을 주지 않아 위치기반 그레이디언트가
-  // 0에 가깝다 → 초기값에서 거의 안 움직인다. 그래서 여러 J5 시드로 각각 풀어本
-  // "J1·J6은 작게, J5가 손목 방향을 담당" 하는 자연스러운 해를 고른다.
+  // 0에 가깝다 → 초기값에서 거의 안 움직인다. 여러 J5 시드로 각각 풀어
+  // "raise↔strike 스윙이 얼마나 수직(하늘→바닥)에 가까운가"로 채점해
+  // 최선의 해를 고른다. (J1 절대값을 강제로 넓게 스윕하는 방식도 시도했으나
+  // 계산이 느리고(7드럼 14초+) 관절 한계에 바짝 붙는 부자연스러운 해로
+  // 이어져 폐기 — J5 시드만으로도 대부분 수직성 0.95+ 확보됨)
   const target = new THREE.Vector3(drum.pos.x, drum.pos.y, drum.pos.z);
   const j5Sign = s === 'L' ? -1 : 1;
   const J5_SEEDS = [0, 0.7, 1.1, 1.4, -0.7].map(v => v * j5Sign);
@@ -470,6 +473,7 @@ function _solveStickStrike(drum, vel) {
     const swingLen = swing.length();
     const verticality = swingLen > 1e-4 ? (-swing.z / swingLen) : -1;   // 1=완전 수직 하강
     if (verticality > overallScore) { overallScore = verticality; overallBest = best; overallBest._err = bestErr; }
+    if (overallScore > 0.95) break;   // 충분히 수직 — 더 찾을 필요 없음(속도)
   }
   // 모든 시드가 수렴 실패한 극단적 경우에만 폴백(첫 시드 결과라도 사용)
   const solved  = overallBest ?? _analyticGuess(drum, 'strike');
