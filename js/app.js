@@ -1122,17 +1122,18 @@ function updateFK(angles) {
       g.position.set(x, y, z); g.quaternion.copy(qO);
     }
   });
-  updateTCPHud();
+  updateJointHud(angles);
 }
 
-function updateTCPHud() {
+function updateJointHud(angles) {
   ['L','R'].forEach(s => {
-    const tcp = groups[`${s}_tip`];   // 스틱 팁 = 타격 기준점
-    if (!tcp) return;
-    const wp = new THREE.Vector3();
-    tcp.getWorldPosition(wp);
-    const el = document.getElementById(`tcp-${s.toLowerCase()}`);
-    if (el) el.textContent = `X${wp.x.toFixed(2)} Y${(-wp.z).toFixed(2)} Z${wp.y.toFixed(2)}`;
+    const el = document.getElementById(`joint-${s.toLowerCase()}`);
+    if (!el) return;
+    const txt = [1,2,3,4,5,6,7].map(i => {
+      const v = angles[`${s}${i}`] ?? 0;
+      return `J${i}${v>=0?'+':''}${v.toFixed(2)}`;
+    }).join(' ');
+    el.textContent = txt;
   });
 }
 
