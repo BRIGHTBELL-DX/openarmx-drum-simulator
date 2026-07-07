@@ -2639,20 +2639,25 @@ window.autoGeneratePattern = function () {
   // ── 복잡도별 추가 스타일 풀 ──────────────────────────────────────
   // L(단순): 곡 전체 1~2드럼 고정, 4분음표 위주, 필 없음 — 실제 "심플 비트" 느낌
   // H(화려): 마디마다(혹은 그 이상) 드럼 교체 + 8분/16분 혼합 + 필 2마디마다
+  //
+  // R팔 고정 드럼은 매번 Rd 중에서 무작위로 하나 뽑는다(생성 1회 동안은 고정
+  // 유지). 항상 라이드/미들탐만 고르면 플로어탐이 L 모드에서 사실상 영영
+  // 안 나오므로, 플로어탐을 포함한 모든 R팔 드럼이 골고루 뽑히게 한다.
+  const simpleR = Rd.length ? Rd[Math.floor(Math.random() * Rd.length)].id : Rback;
+
   const SIMPLE_STYLES = [
     {
       name: '심플 그루브',
       gen(bs) {
         const mL = lcyc(0);                              // 곡 전체 고정 1드럼
         for (let b = 0; b < bpb; b++) safeAdd(mL, bs + b);
-        backOff.forEach(b => safeAdd(Rback, bs + b));
+        backOff.forEach(b => safeAdd(simpleR, bs + b));
       },
     },
     {
       name: '심플 백비트',
       gen(bs) {
-        const mR = rcyc(0);                               // 곡 전체 고정 1드럼
-        for (let b = 0; b < bpb; b++) safeAdd(mR, bs + b);
+        for (let b = 0; b < bpb; b++) safeAdd(simpleR, bs + b);
         backOff.forEach(b => safeAdd(Lsnare ?? Lhihat ?? lcyc(0), bs + b));
       },
     },
