@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenArmX 드럼 로봇 시뮬레이터</title>
-<link rel="stylesheet" href="css/style.css?v=7">
+<link rel="stylesheet" href="css/style.css?v=8">
 </head>
 <body>
 
@@ -158,6 +158,12 @@
         <button id="vel-mode-medium" class="vel-mode-btn active" onclick="setDefaultVel('medium')">중</button>
         <button id="vel-mode-hard"   class="vel-mode-btn" onclick="setDefaultVel('hard')">강</button>
       </div>
+      <div class="vel-mode-sel" title="자동 생성 복잡도 — L:단순(고정 1~2드럼) · M:기본 · H:화려(전체 드럼, 빠른 전환)">
+        <span class="vel-mode-label">복잡도</span>
+        <button id="cx-mode-l" class="vel-mode-btn cx-mode-btn" onclick="setComplexity('L')">L</button>
+        <button id="cx-mode-m" class="vel-mode-btn cx-mode-btn active" onclick="setComplexity('M')">M</button>
+        <button id="cx-mode-h" class="vel-mode-btn cx-mode-btn" onclick="setComplexity('H')">H</button>
+      </div>
       <button class="btn-sm btn-autogen" onclick="autoGeneratePattern()">🎲 자동 생성</button>
       <button class="btn-sm" onclick="clearTimeline()">🗑 초기화</button>
     </div>
@@ -191,7 +197,7 @@
   }
 }
 </script>
-<script src="js/intro_outro_presets.js?v=14"></script>
-<script type="module" src="js/app.js?v=14"></script>
+<script src="js/intro_outro_presets.js?v=15"></script>
+<script type="module" src="js/app.js?v=15"></script>
 </body>
 </html>

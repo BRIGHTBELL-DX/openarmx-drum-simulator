@@ -442,6 +442,9 @@ body {
 .vel-mode-btn.active[id="vel-mode-soft"]   { background:#0a1830; color:#88aaee; border-color:#3366bb; }
 .vel-mode-btn.active[id="vel-mode-medium"] { background:#0d2010; color:#55dd88; border-color:#228844; }
 .vel-mode-btn.active[id="vel-mode-hard"]   { background:#2a0e0a; color:#ff7755; border-color:#bb3311; }
+.cx-mode-btn.active[id="cx-mode-l"] { background:#0a1830; color:#88aaee; border-color:#3366bb; }
+.cx-mode-btn.active[id="cx-mode-m"] { background:#0d2010; color:#55dd88; border-color:#228844; }
+.cx-mode-btn.active[id="cx-mode-h"] { background:#2a0e0a; color:#ff7755; border-color:#bb3311; }
 
 #tl-controls label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 #tl-controls select {

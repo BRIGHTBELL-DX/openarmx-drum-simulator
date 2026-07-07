@@ -101,6 +101,7 @@ function saveSettings() {
       introChecked: document.getElementById('chk-intro')?.checked ?? true,
       outroChecked: document.getElementById('chk-outro')?.checked ?? true,
       stickJ7Offset,
+      complexityMode,
     }));
   } catch(e) {}
 }
@@ -115,6 +116,7 @@ function loadSettings() {
     if (s.introChecked != null) { const el = document.getElementById('chk-intro'); if (el) el.checked = s.introChecked; }
     if (s.outroChecked != null) { const el = document.getElementById('chk-outro'); if (el) el.checked = s.outroChecked; }
     if (s.stickJ7Offset   != null) { stickJ7Offset   = s.stickJ7Offset;   _setSliderPair('stick-j7-slider',   'stick-j7-val',   stickJ7Offset); }
+    if (s.complexityMode  != null) { window.setComplexity(s.complexityMode); }
     updateTLInfo();
   } catch(e) {}
 }
@@ -149,6 +151,7 @@ let bpm = 120;
 let beatsPerBar = 4;
 let totalBars = 8;
 let defaultVel     = 'medium'; // 타임라인 클릭 기본 velocity
+let complexityMode = 'M'; // 자동 생성 복잡도: L(단순)·M(기본)·H(화려)
 // 타격점(J1~J7)은 고정 — raise 시 J7이 얼마나 더 젖혀지는지(들어올리는 높이)만 조절.
 // 양수 = 더 높이 들어 강하게, 음수 = 낮게 들어 약하게. 팔별 부호(L:-/R:+)는
 // computeStrikePose에서 자동 처리되므로 여기선 하나의 magnitude만 관리한다.
@@ -2218,6 +2221,15 @@ window.setDefaultVel = function (vel) {
   });
 };
 
+// 자동 생성 복잡도 버튼 클릭 핸들러 — L(단순)·M(기본)·H(화려)
+window.setComplexity = function (mode) {
+  complexityMode = mode;
+  ['L','M','H'].forEach(m => {
+    document.getElementById(`cx-mode-${m.toLowerCase()}`)?.classList.toggle('active', m === mode);
+  });
+  saveSettings();
+};
+
 // ═══════════════════════════════════════════════════════════════
 //  드럼 타격 자세 실시간 미리보기
 //  클릭 시: 중립 → raise → strike → rebound → 중립 애니메이션
@@ -2612,59 +2624,140 @@ window.autoGeneratePattern = function () {
     },
   ];
 
-  const style = STYLES[Math.floor(Math.random() * STYLES.length)];
+  // ── 복잡도별 추가 스타일 풀 ──────────────────────────────────────
+  // L(단순): 곡 전체 1~2드럼 고정, 4분음표 위주, 필 없음 — 실제 "심플 비트" 느낌
+  // H(화려): 마디마다(혹은 그 이상) 드럼 교체 + 8분/16분 혼합 + 필 2마디마다
+  const SIMPLE_STYLES = [
+    {
+      name: '심플 그루브',
+      gen(bs) {
+        const mL = lcyc(0);                              // 곡 전체 고정 1드럼
+        for (let b = 0; b < bpb; b++) safeAdd(mL, bs + b);
+        backOff.forEach(b => safeAdd(Rback, bs + b));
+      },
+    },
+    {
+      name: '심플 백비트',
+      gen(bs) {
+        const mR = rcyc(0);                               // 곡 전체 고정 1드럼
+        for (let b = 0; b < bpb; b++) safeAdd(mR, bs + b);
+        backOff.forEach(b => safeAdd(Lsnare ?? Lhihat ?? lcyc(0), bs + b));
+      },
+    },
+  ];
+
+  const COMPLEX_STYLES = [
+    {
+      name: '풀 드럼 쇼케이스',
+      gen(bs, bar) {
+        const mL  = lcyc(bar);
+        const mL2 = lcyc(bar + 1);
+        const mR  = rcyc(bar);
+        const mR2 = rcyc(bar + 1);
+        for (let b = 0; b < bpb; b++) {
+          safeAdd(b % 2 === 0 ? mL : mL2, bs + b);
+          safeAdd(mR, bs + b + 0.5);
+          if (coin(0.4)) safeAdd(mR2, bs + b + 0.25);     // 16분 고스트
+          if (coin(0.3)) safeAdd(mL2, bs + b + 0.75);
+        }
+        backOff.forEach(b => safeAdd(Lsnare ?? mL, bs + b));
+        if (bar % 2 === 1) {                              // 필 2마디마다(기본보다 촘촘)
+          safeAdd(Lcrash ?? lcyc(bar + 2), bs + bpb - 1);
+          safeAdd(rcyc(bar + 2), bs + bpb - 1);
+        }
+      },
+    },
+    {
+      name: '폴리 콤보',
+      gen(bs, bar) {
+        const mL = lcyc(bar);
+        const mR = rcyc(bar + 1);                         // L/R 교차 오프셋
+        for (let b = 0; b < bpb; b++) {
+          safeAdd(mL, bs + b);
+          if (b % 2 === 0) safeAdd(mL, bs + b + 0.5);
+          safeAdd(mR, bs + b + 0.5);
+          if (coin(0.35)) safeAdd(mR, bs + b + 0.25);
+        }
+        backOff.forEach(b => safeAdd(Lsnare ?? mL, bs + b));
+        if (bar % 2 === 1) {
+          safeAdd(lcyc(bar + 2), bs + bpb - 2);
+          safeAdd(rcyc(bar + 3), bs + bpb - 1);
+        }
+      },
+    },
+  ];
+
+  const pool = complexityMode === 'L' ? SIMPLE_STYLES
+             : complexityMode === 'H' ? COMPLEX_STYLES
+             : STYLES;
+  const style = pool[Math.floor(Math.random() * pool.length)];
 
   for (let bar = 0; bar < totalBars; bar++) {
     style.gen(bar * bpb + 1, bar);
   }
 
-  // 오프닝 악센트 — 크래시(있으면)로 카운트인 느낌, 없으면 L 첫 드럼
-  safeAdd(Lcrash ?? Ld[0]?.id, 1);
+  // 오프닝 악센트 — 크래시로 카운트인 느낌. L(단순) 모드는 드럼 수를 최소로
+  // 유지하는 게 목적이라 생략(추가 드럼 1개가 곡 시작에만 몰리는 것도 방지).
+  if (complexityMode !== 'L') {
+    safeAdd(Lcrash ?? Ld[0]?.id, 1);
+  }
 
-  // ── 밀도 보장: 팔당 최소 0.5s(120bpm=1박) 이상 공백 금지 ──────
-  // 크래시 계열은 강조 포인트 전용이므로 필러에서 제외, 리듬 드럼만 사용
-  const FILLER_TYPES_L = ['hihat', 'tom_h', 'snare'];
-  const FILLER_TYPES_R = ['ride', 'tom_m', 'tom_f'];
-  const fillL = Ld.filter(d => FILLER_TYPES_L.includes(d.type));
-  const fillR = Rd.filter(d => FILLER_TYPES_R.includes(d.type));
+  // L(단순) 모드는 여백 자체가 "단순함"의 일부이므로 아래 밀도·커버리지
+  // 보정을 건너뛴다 — 안 그러면 필러가 드럼을 더 채워 넣어 단순함이 깨진다.
+  if (complexityMode !== 'L') {
+    // ── 밀도 보장: 팔당 공백 금지 (H는 더 촘촘하게) ──────────────
+    // 크래시 계열은 강조 포인트 전용이므로 필러에서 제외, 리듬 드럼만 사용
+    const FILLER_TYPES_L = ['hihat', 'tom_h', 'snare'];
+    const FILLER_TYPES_R = ['ride', 'tom_m', 'tom_f'];
+    const fillL = Ld.filter(d => FILLER_TYPES_L.includes(d.type));
+    const fillR = Rd.filter(d => FILLER_TYPES_R.includes(d.type));
 
-  const maxGapB = (bpm / 60) * 0.5;   // 0.5s → beat 단위
-  ['L', 'R'].forEach(arm => {
-    const drums = (arm === 'L' ? fillL : fillR);
-    if (!drums.length) return;
-    let cycIdx = 0;
-    for (let b = 1; b <= totalB; b += maxGapB) {
-      const bk = parseFloat(b.toFixed(3));
-      if (bk > totalB) break;
-      // 근처(±0.45박)에 이미 이 팔 hit이 있으면 skip
-      const near = timelineEvents.some(e => {
-        const d = drumKit.find(d => d.id === e.drumId);
-        return d?.arm === arm && Math.abs(e.beat - bk) < maxGapB * 0.45;
-      });
-      if (near) continue;
-      const drumId = drums[cycIdx % drums.length].id;
-      // 양팔 충돌 시 0.13박 뒤로 재시도
-      const bkAlt = parseFloat((bk + 0.13).toFixed(3));
-      if (safeAdd(drumId, bk) || (bkAlt <= totalB && safeAdd(drumId, bkAlt))) {
-        cycIdx++;
+    const maxGapB = (bpm / 60) * (complexityMode === 'H' ? 0.25 : 0.5);   // beat 단위
+    ['L', 'R'].forEach(arm => {
+      const drums = (arm === 'L' ? fillL : fillR);
+      if (!drums.length) return;
+      let cycIdx = 0;
+      for (let b = 1; b <= totalB; b += maxGapB) {
+        const bk = parseFloat(b.toFixed(3));
+        if (bk > totalB) break;
+        // 근처(±0.45박)에 이미 이 팔 hit이 있으면 skip
+        const near = timelineEvents.some(e => {
+          const d = drumKit.find(d => d.id === e.drumId);
+          return d?.arm === arm && Math.abs(e.beat - bk) < maxGapB * 0.45;
+        });
+        if (near) continue;
+        const drumId = drums[cycIdx % drums.length].id;
+        // 양팔 충돌 시 0.13박 뒤로 재시도
+        const bkAlt = parseFloat((bk + 0.13).toFixed(3));
+        if (safeAdd(drumId, bk) || (bkAlt <= totalB && safeAdd(drumId, bkAlt))) {
+          cycIdx++;
+        }
       }
-    }
-  });
+    });
 
-  // ── 커버리지 보장: 실물 드럼 테스트 목적 — 킥을 제외한 7개 드럼 중
-  // 이번 생성에서 한 번도 안 쓰인 드럼을 찾아 빈 박자에 채워 넣는다.
-  // (스타일별로 크래시·라이드 등이 우연히 빠질 수 있어, 여기서 최종 보정)
-  const hitCount = id => timelineEvents.filter(e => e.drumId === id).length;
-  [...Ld, ...Rd].filter(d => hitCount(d.id) === 0).forEach(d => {
-    for (let b = 1; b <= totalB; b += 0.5) {
-      if (safeAdd(d.id, parseFloat(b.toFixed(3)))) break;
-    }
-  });
+    // ── 커버리지 보장: 실물 드럼 테스트 목적 — 킥을 제외한 드럼 중
+    // 이번 생성에서 한 번도 안 쓰인 드럼을 찾아 빈 박자에 채워 넣는다.
+    // 곡 전체에 고르게 분산 배치(각 드럼의 탐색 시작점을 순서대로 흩어
+    // 놓음) — 이전엔 항상 1박부터 찾아서 누락 드럼이 전부 곡 시작에
+    // 몰리는 문제가 있었다.
+    const hitCount = id => timelineEvents.filter(e => e.drumId === id).length;
+    const missing = [...Ld, ...Rd].filter(d => hitCount(d.id) === 0);
+    missing.forEach((d, i) => {
+      const startB = 1 + Math.floor(((i + 0.5) / missing.length) * Math.max(0, totalB - 1));
+      let placed = false;
+      for (let b = startB; b <= totalB && !placed; b += 0.5) {
+        if (safeAdd(d.id, parseFloat(b.toFixed(3)))) placed = true;
+      }
+      for (let b = 1; b < startB && !placed; b += 0.5) {
+        if (safeAdd(d.id, parseFloat(b.toFixed(3)))) placed = true;
+      }
+    });
+  }
 
   _commitTimeline();
   stopAnim();
   if (timelineEvents.length) playAnim();
-  setStatus(`🎲 자동 생성: ${style.name} (${timelineEvents.length}개)`);
+  setStatus(`🎲 자동 생성[${complexityMode}]: ${style.name} (${timelineEvents.length}개)`);
 };
 
 
