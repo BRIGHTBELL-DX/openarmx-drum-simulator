@@ -37,30 +37,29 @@ const VEL_GLOW = {
 // ═══════════════════════════════════════════════════════════════
 //  드럼 키트 상태
 // ═══════════════════════════════════════════════════════════════
-// 어깨(암 루트) 높이 0.698m 기준 — 실제 8피스 드럼 키트 배치 (드럼채 대응)
+// 어깨(암 루트) 높이 0.698m 기준 — 실제 8피스 드럼 키트 배치 (사용자 확정값)
 // 높이 서열: 킥 0.12(바닥) < 플로어 탐 0.26 ≈ 스네어 0.28 < 하이 햇 0.37
 //           < 스몰·미들 탐 0.38(킥 위 마운트) < 라이드 0.48 < 크래쉬 0.50(최고)
-// X = 사용자 확정값 + 0.15 (드럼채 30cm 돌출 → 팔이 뒤로 빠진 자세에서 팁 타격)
-//     스몰 탐 +0.06, 미들 탐 +0.04 추가 전진 — 스네어↔크래쉬/플로어↔미들 전환 시
-//     스틱 스윙 호가 인접 드럼을 스치지 않도록 (전환 18쌍 충돌 0 검증)
+// X는 확정 base 값 + 0.06 (로봇~드럼 거리 확보). 최대 도달 0.66m (한계 0.795m).
+// 기울기는 DRUM_TYPES.tilt 기본값 사용 (drum.tiltDeg로 개별 오버라이드)
 let drumKit = [
   // ─ L팔 ─────────────────────────────────────────────────────────
-  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.48, y: 0.40, z:0.37} },
-  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.69, y: 0.34, z:0.50} },
-  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.53, y: 0.16, z:0.28} },
-  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.69, y: 0.10, z:0.38} },
+  { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.33, y: 0.40, z:0.37} },
+  { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.54, y: 0.34, z:0.50} },
+  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.38, y: 0.16, z:0.28} },
+  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.48, y: 0.10, z:0.38} },
   // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
-  { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.63, y: 0.00, z:0.12} },
+  { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.48, y: 0.00, z:0.12} },
   // ─ R팔 ─────────────────────────────────────────────────────────
-  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.75, y:-0.12, z:0.38} },
-  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.52, y:-0.21, z:0.26} },
-  { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.65, y:-0.50, z:0.48} },
+  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.56, y:-0.12, z:0.38} },
+  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.37, y:-0.21, z:0.26} },
+  { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.50, y:-0.41, z:0.48} },
 ];
 let nextDrumId = 8;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v8';
+const _DK_STORE = 'openarmx_drum_kit_v6';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
@@ -227,58 +226,6 @@ function _pureFK(jointAngles, arm) {
   return new THREE.Vector3().setFromMatrixPosition(mat);
 }
 
-// ═══════════════════════════════════════════════════════════════
-//  드럼채(스틱) — 그리퍼에 45° 고정, 그립점 앞 30cm 돌출
-// ═══════════════════════════════════════════════════════════════
-// hand 로컬 프레임: 그립점 (0,0,gripZ), 스틱 방향 = Z축 대비 tilt 기울임(-X쪽)
-// → J7(손목) 회전 평면과 스틱 기울임 평면이 일치 = 손목 스냅이 곧 타격 스윙
-const STICK = { fwd: 0.30, back: 0.10, tilt: PI / 4, gripZ: 0.08, dirSign: -1 };
-// 스틱 포함 유효 타격 반경 (팔 0.82 + 스틱 돌출의 실효 연장분) — 도달 배지용
-const STICK_REACH = MAX_REACH + 0.16;
-
-// 타격 방향 후보 [β, δ] — β: 루트→드럼 방위에서 몸중심 쪽 회전(°), δ: 하향 피치(°)
-// 가파른 피치 우선: 스윙 호가 수직에 가까워 인접 드럼 스침 최소 (실험 검증 순서)
-const STICK_CANDIDATES = [
-  [0,55],[15,50],[0,50],[30,45],[15,45],[0,45],[30,40],[45,40],[15,40],[0,40],
-  [30,35],[45,35],[15,35],[45,30],[30,30],[60,35],[60,30],[0,60],[15,60],[30,55],
-];
-
-/** hand 링크까지의 FK 행렬 */
-function _pureFKHand(jointAngles, arm) {
-  const path = [
-    'body', `${arm}0`,
-    ...[1,2,3,4,5,6,7].map(i => `${arm}${i}`),
-    `${arm}_hand`,
-  ];
-  let mat = new THREE.Matrix4();
-  for (const name of path) {
-    const lk = CHAIN.find(l => l.name === name);
-    if (!lk) continue;
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...lk.rpy, 'XYZ'));
-    if (lk.type === 'revolute' && lk.joint && jointAngles[lk.joint] !== undefined) {
-      const ax = new THREE.Vector3(...lk.axis).normalize();
-      q.multiply(new THREE.Quaternion().setFromAxisAngle(ax, jointAngles[lk.joint]));
-    }
-    mat.multiply(
-      new THREE.Matrix4().compose(new THREE.Vector3(...lk.xyz), q, new THREE.Vector3(1,1,1))
-    );
-  }
-  return mat;
-}
-
-/** 스틱 팁·버트 월드 좌표 (URDF 프레임) */
-function _pureFKStick(jointAngles, arm) {
-  const handMat = _pureFKHand(jointAngles, arm);
-  const sin = Math.sin(STICK.tilt), cos = Math.cos(STICK.tilt);
-  const dirW = new THREE.Vector3(STICK.dirSign * sin, 0, cos).transformDirection(handMat);
-  const grip = new THREE.Vector3(0, 0, STICK.gripZ).applyMatrix4(handMat);
-  return {
-    tip:  grip.clone().addScaledVector(dirW, STICK.fwd),
-    butt: grip.clone().addScaledVector(dirW, -STICK.back),
-    dir:  dirW,
-  };
-}
-
 // ── 수치 IK: J1~J6 최적화, J7 고정 ────────────────────────────
 // L·R 팔 관절 한계 (물리적 충돌 방지)
 const _IK_LIMITS = {
@@ -330,50 +277,6 @@ function _solveIK(arm, targetUrdf, initAngles, j7, extraLimits) {
   return a;
 }
 
-// ── 2점 IK: 스틱 팁 + 버트 동시 타겟 ────────────────────────────
-// 팁 위치와 스틱 방향(버트 = 팁 - 0.40·dir)을 함께 풀어
-// 위치 전용 IK의 자세 불확정성(스틱이 옆·위를 향하는 국소해) 제거
-function _solveIK2pt(arm, target, dirDesired, initAngles, j7, extraLimits) {
-  const LIMITS = { ..._IK_LIMITS };
-  if (extraLimits) Object.assign(LIMITS, extraLimits);
-
-  const JK = [1,2,3,4,5,6].map(i => `${arm}${i}`);
-  const a  = { [`${arm}7`]: j7 };
-  JK.forEach(k => {
-    const [lo, hi] = LIMITS[k] ?? [-PI, PI];
-    a[k] = clamp(initAngles[k] ?? 0, lo, hi);
-  });
-
-  const T = new THREE.Vector3(target.x, target.y, target.z);
-  const B = T.clone().addScaledVector(dirDesired, -(STICK.fwd + STICK.back));
-  const W = 0.6;   // 버트(방향) 가중
-  const dt = 0.004;
-  const cost = (ang) => {
-    const p = _pureFKStick(ang, arm);
-    return T.distanceToSquared(p.tip) + W * B.distanceToSquared(p.butt);
-  };
-
-  for (let it = 0; it < 110; it++) {
-    const c0 = cost(a);
-    if (Math.sqrt(c0) < 0.005) break;
-    const grads = []; let gSq = 0;
-    for (let i = 0; i < JK.length; i++) {
-      const ap = { ...a }; ap[JK[i]] += dt;
-      const g = (c0 - cost(ap)) / dt;   // 하강 방향
-      grads.push(g); gSq += g * g;
-    }
-    const gNorm = Math.sqrt(gSq) + 1e-8;
-    const step  = Math.min(0.05, Math.sqrt(c0) * 0.5) / gNorm;
-    for (let i = 0; i < JK.length; i++) {
-      const [lo, hi] = LIMITS[JK[i]] ?? [-PI, PI];
-      a[JK[i]] = clamp(a[JK[i]] + grads[i] * step, lo, hi);
-    }
-  }
-  a[`${arm}7`] = j7;
-  a._errTip = T.distanceTo(_pureFKStick(a, arm).tip);
-  return a;
-}
-
 // ── 해석적 초기 추정치 (수렴 속도용) ───────────────────────────
 function _analyticGuess(drum, phase) {
   const s    = drum.arm;
@@ -420,97 +323,124 @@ function _analyticGuess(drum, phase) {
   return base;
 }
 
-// ── 드럼 위치 → 타격 포즈 (드럼채 2점 IK 기반) ─────────────────
-// strike : 스틱 팁이 드럼 헤드에 정확히 도달 (2점 IK — 팁 위치 + 스틱 방향)
-// raise  : strike와 동일한 팔 자세 + 손목(J7)만 코킹 → 팁이 드럼 위 ~0.3-0.4m
-// rebound: strike 자세 + J7 부분 코킹 (타격 후 반동)
-// → 드러머의 손목 스트로크 모델: 팔은 고정, 손목 스냅이 타격을 만듦
-//   (raise↔strike 보간이 곧 손목 스윙 = 관절 공간 연속성 완벽 보장)
-
-// 스트라이크 솔브 캐시 — 드럼 위치·강도가 같으면 재계산 없음 (빠른 박자 대응)
-const _strikeSolveCache = new Map();
-
-function _solveStickStrike(drum, vel) {
-  const s     = drum.arm;
-  const vs    = VEL_SCALE[vel] ?? VEL_SCALE.medium;
-  const style = DRUM_TYPES[drum.type]?.style || 'full';
-  const styleScale = { big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0;
-  const j7Raw = 0.18 * vs.j7Strike * styleScale + stickJ7Offset;
-  const j7    = s === 'L' ? j7Raw : -j7Raw;
-
-  const key = [drum.id, vel,
-               drum.pos.x.toFixed(3), drum.pos.y.toFixed(3), drum.pos.z.toFixed(3),
-               stickJ7Offset.toFixed(3)].join('|');
-  const hit = _strikeSolveCache.get(key);
-  if (hit) return hit;
-
-  const root     = ARM_ROOT[s];
-  const target   = { x: drum.pos.x, y: drum.pos.y, z: drum.pos.z };
-  const az       = Math.atan2(target.y - root.y, target.x - root.x);
-  const betaSign = s === 'L' ? -1 : +1;   // 몸 중심 쪽으로 회전
-
-  // J1 뒤로 스윙 허용 (L: +, R: -) — 팔이 뒤로 빠지고 스틱이 앞으로 나가는 자세
-  const extra = {};
-  extra[`${s}1`] = s === 'L' ? [-2.0, 1.4] : [-1.4, 2.0];
-
-  let best = null;
-  for (const [beta, pitch] of STICK_CANDIDATES) {
-    const az2  = az + betaSign * beta * PI / 180;
-    const dRad = pitch * PI / 180;
-    const dir  = new THREE.Vector3(
-      Math.cos(az2) * Math.cos(dRad),
-      Math.sin(az2) * Math.cos(dRad),
-      -Math.sin(dRad));
-    // TCP 예상 위치를 가상 드럼으로 → 해석적 초기 추정
-    const proxy = { x: target.x - 0.20 * dir.x,
-                    y: target.y - 0.20 * dir.y,
-                    z: target.z + 0.20 * Math.sin(dRad) };
-    const guess = _analyticGuess({ ...drum, pos: proxy }, 'strike');
-    const init  = {};
-    [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
-    const sol = _solveIK2pt(s, target, dir, init, j7, extra);
-    if (!best || sol._errTip < best._errTip) best = sol;
-    if (sol._errTip < 0.008) break;   // 후보 캐스케이드: 수렴 즉시 채택
-  }
-
-  const result = { pose: best, ok: best._errTip < 0.008, j7Strike: j7 };
-  if (_strikeSolveCache.size > 300) _strikeSolveCache.clear();
-  _strikeSolveCache.set(key, result);
-  return result;
-}
-
+// ── 드럼 위치 → 타격 포즈 (수치 IK 기반) ───────────────────────
+// phase: 'raise' | 'strike' | 'rebound'
+// strike: TCP가 드럼 위치에 정확히 도달
+// raise:  드럼 위치보다 약간 위·뒤 (코일업)
+// rebound: 타격 직후 위로 튀어오름
 function computeStrikePose(drum, phase, vel = 'medium') {
   const s     = drum.arm;
   const style = DRUM_TYPES[drum.type]?.style || 'full';
   const vs    = VEL_SCALE[vel] ?? VEL_SCALE.medium;
-  const styleScale = { big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0;
 
-  const { pose: solved, j7Strike } = _solveStickStrike(drum, vel);
+  // 손목 스냅 J7 (위상별 고정 — IK와 별개) + 스틱 각도 오프셋 + velocity 배율
+  const j7PhaseW = { raise: 0, strike: 1.0, rebound: 0.3 }[phase] ?? 0;
+  const j7Raw = ({ raise:-0.86, strike:+0.18 * vs.j7Strike, rebound:-0.54 }[phase] || 0) *
+                ({ big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0)
+                + stickJ7Offset * j7PhaseW;
+  const j7    = s === 'L' ? j7Raw : -j7Raw;
+
+  // 심벌(하이햇·라이드·크래시): raise를 더 높게 → 위에서 내려치는 자연스러운 자세
+  const isCymbal = ['crash', 'ride', 'hihat'].includes(drum.type);
+  const offMap = {
+    raise:   { x: isCymbal ? -0.04 : -0.03, z: (isCymbal ? +0.17 : +0.10) * vs.raiseZ },
+    strike:  { x: 0,                          z: 0                                      },
+    rebound: { x: 0,                            z: (isCymbal ? +0.13 : +0.08) * vs.rebZ  },
+  };
+  const off    = offMap[phase] || offMap.strike;
+  const target = { x: drum.pos.x + off.x, y: drum.pos.y, z: drum.pos.z + off.z };
+
+  // ── 도달 불가 위치 안전 처리 ────────────────────────────────────
+  // 타겟이 MAX_REACH 밖이면 같은 방향 97% 지점으로 클램핑
+  // → IK 발산 방지, 팔이 드럼을 뚫고 과도 연장되는 현상 제거
+  {
+    const rt = ARM_ROOT[s];
+    const dx = target.x - rt.x, dy = target.y - rt.y, dz = target.z - rt.z;
+    const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if (len > MAX_REACH * 0.97) {
+      const sc = (MAX_REACH * 0.97) / len;
+      target.x = rt.x + dx*sc; target.y = rt.y + dy*sc; target.z = rt.z + dz*sc;
+    }
+  }
+
+  // 해석적 초기 추정 → 수치 IK로 정밀화
+  // 모든 위상을 strike 추정치에서 시작 — 조인트 공간 연속성 유지, raise·rebound 호 방지
+  const guess = _analyticGuess(drum, 'strike');
+  const init  = {};
+  [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
+
+  // 심벌용 IK 추가 제약
+  const extraLimits = {};
+  if (isCymbal) {
+    // J4 팔꿈치 최소 굽힘 — 과다 연장 방지
+    extraLimits[`${s}4`] = [0.28, 1.70];
+
+    // 측면 심벌: J1 어깨를 바깥쪽으로 강제
+    // → "J1≈0 + J2 급경사" 국소해 방지, 자연스러운 팔 펼침 유도
+    const lateralDist = (s === 'L' ? 1 : -1) * (drum.pos.y - ARM_ROOT[s].y);
+    if (lateralDist > 0.12) {
+      if (s === 'L') extraLimits['L1'] = [-2.0, -0.22];  // L팔: 어깨 왼쪽으로
+      else           extraLimits['R1'] = [ 0.22,  2.0];  // R팔: 어깨 오른쪽으로
+    }
+  }
+
+  // 탐 드럼(비심벌): J1 어깨를 바깥쪽으로 강제 — 팔이 안쪽으로 교차하며 치는 어색함 방지
+  if (!isCymbal) {
+    const lateralDistTom = (s === 'L' ? 1 : -1) * (drum.pos.y - ARM_ROOT[s].y);
+    if (lateralDistTom > 0.08) {
+      if (s === 'L') extraLimits['L1'] = [-2.0, -0.30];
+      else           extraLimits['R1'] = [ 0.30,  2.0];
+    }
+
+    // 거리 비율 기반 최소 팔꿈치 굽힘 — 멀리 있을수록 IK가 팔꿈치를 0으로 수렴시키는 현상 방지
+    // distNorm=0.70 → minJ4≈0.75  /  distNorm=0.85 → minJ4≈0.38  /  distNorm=0.97 → minJ4=0.22(clamp)
+    const ar = ARM_ROOT[s];
+    const dn = clamp(
+      Math.sqrt((drum.pos.x-ar.x)**2 + (drum.pos.y-ar.y)**2 + (drum.pos.z-ar.z)**2) / MAX_REACH,
+      0, 1);
+    extraLimits[`${s}4`] = [clamp((1 - dn) * 2.5, 0.22, 1.20), 1.70];
+  }
+
+  // 측면 드럼(하이햇·크래시·라이드 등): J2 어깨를 옆으로 펼치도록 강제
+  // → J2≈0이면 팔이 안쪽으로 수렴해 충돌 위험·어색한 자세 발생
+  // → L팔: J2 최대 -0.40 (반드시 옆으로 벌려짐)
+  //    R팔: J2 최소 +0.40 (반드시 옆으로 벌려짐)
+  const lateralY = (s === 'L' ? 1 : -1) * drum.pos.y;
+  if (lateralY > 0.18) {
+    if (s === 'L') extraLimits['L2'] = [-1.65, -0.40];
+    else           extraLimits['R2'] = [ 0.40,  1.65];
+  }
+
+  const solved = _solveIK(s, target, init, j7,
+                           Object.keys(extraLimits).length ? extraLimits : undefined);
 
   // 포즈 조립 (해당 팔만 — buildKeyframes에서 L/R 트랙 분리)
   const pose = { ...NEUTRAL };
   [1,2,3,4,5,6,7].forEach(i => { pose[`${s}${i}`] = solved[`${s}${i}`]; });
 
-  // raise/rebound = 손목(J7) 코킹 — 팔 관절(J1~J6)은 strike와 동일
-  if (phase === 'raise' || phase === 'rebound') {
-    const baseRaw  = ({ raise: -0.86, rebound: -0.54 })[phase] * styleScale;
-    const j7Phase  = s === 'L' ? baseRaw : -baseRaw;
-    // velocity → 코킹 폭: 약하게 칠수록 살짝만, 세게 칠수록 크게 들어올림
-    const cockScale = phase === 'raise'
-      ? clamp(vs.raiseZ, 0.55, 1.35)
-      : clamp(vs.rebZ,   0.50, 1.30);
-    pose[`${s}7`] = j7Strike + (j7Phase - j7Strike) * cockScale;
+  // ── 드럼 스트로크 호(arc) 보정 ──────────────────────────────────
+  // raise : J1을 바깥쪽으로 열어 "위·옆에서 내려치는" 스윙 궤적 생성
+  // rebound: 타격 후 J1이 다시 약간 바깥으로 튀어나오며 자연스러운 반동
+  // 측면 드럼(하이햇 등)은 IK J1이 이미 크게 벌어져 있으므로
+  // arc를 줄여 시작 자세→raise 간 튐 현상 방지
+  const lateralAbs  = Math.abs(drum.pos.y);
+  const arcScale    = Math.max(0, 1 - lateralAbs / 0.45);
+  const arcJ1Base   = { raise: 0.06, rebound: 0.03 }[phase] ?? 0;
+  const arcJ1       = arcJ1Base * arcScale;
+  if (arcJ1 > 0) {
+    if (s === 'L') pose.L1 = clamp(pose.L1 - arcJ1, -2.0, 2.0);
+    else           pose.R1 = clamp(pose.R1 + arcJ1, -2.0, 2.0);
   }
 
-  // velocity J4 보정 — strike만 적용
+  // velocity J4 보정 — strike만 적용 (raise·rebound는 IK 그대로)
   if (vs.j4 !== 0 && phase === 'strike') {
-    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + vs.j4, 0, 1.70);
+    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + vs.j4, 0, 2.0);
   }
 
   // 스트로크 튜닝 오프셋 (타격 직전 최대, raise 자연 유지, rebound 서서히 복귀)
   const strokePhaseW = { raise: 0, strike: 1.0, rebound: 0.3 }[phase] ?? 0;
   if (strokeJ4Offset !== 0) {
-    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + strokeJ4Offset * strokePhaseW, 0, 1.70);
+    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + strokeJ4Offset * strokePhaseW, 0, 2.0);
   }
   if (strokeJ56Offset !== 0) {
     const sign = s === 'L' ? 1 : -1;
@@ -534,13 +464,6 @@ function _getReadyPoses() {
     L: { L1:p[0], L2:p[1], L3:p[2], L4:p[3], L5:p[4], L6:p[5], L7:p[6] },
     R: { R1:p[7], R2:p[8], R3:p[9], R4:p[10], R5:p[11], R6:p[12], R7:p[13] },
   };
-}
-
-// 대기(idle) 표시 자세 — 드럼채가 전방-하향으로 드럼을 겨눈 "준비" 스탠스
-// (NEUTRAL 전관절 0은 스틱이 뒤를 향하므로 idle 표시로 부적합)
-function _idlePose() {
-  const { L, R } = _getReadyPoses();
-  return { ...NEUTRAL, ...L, ...R };
 }
 
 function buildKeyframes() {
@@ -842,8 +765,8 @@ window.validatePattern = function () {
   drumKit.forEach(d => {
     if (d.type === 'kick') { results.push({ lv:'info', msg:`[${d.name}] 킥 — 확장 이벤트 (팔 동작 없음)` }); return; }
     const dist = reachDist(d);
-    if      (dist > STICK_REACH)      results.push({ lv:'err',  msg:`[${d.name}] 도달 불가 (${dist.toFixed(2)}m > ${STICK_REACH}m)` });
-    else if (dist > STICK_REACH * 0.88) results.push({ lv:'warn', msg:`[${d.name}] 한계 근접 (${dist.toFixed(2)}m)` });
+    if      (dist > MAX_REACH)        results.push({ lv:'err',  msg:`[${d.name}] 도달 불가 (${dist.toFixed(2)}m > ${MAX_REACH}m)` });
+    else if (dist > MAX_REACH * 0.88) results.push({ lv:'warn', msg:`[${d.name}] 한계 근접 (${dist.toFixed(2)}m)` });
     else                              results.push({ lv:'ok',   msg:`[${d.name}] 도달 가능 (${dist.toFixed(2)}m)` });
   });
 
@@ -871,7 +794,7 @@ window.validatePattern = function () {
         // 반대팔로 두 번째 드럼을 칠 수 있는지 체크
         const d2       = evts[i].drum;
         const distAlt  = reachDist({ ...d2, arm: otherArm });
-        const canAlt   = distAlt <= STICK_REACH;
+        const canAlt   = distAlt <= MAX_REACH;
         // 해당 타이밍에 반대팔이 이미 쓰이는지
         const beatSec  = evts[i].t;
         const otherBusy = armEvts[otherArm].some(e => Math.abs(e.t - beatSec) < 0.01);
@@ -959,8 +882,6 @@ const CHAIN = [
   { name:'L_fL', parent:'L_hand', type:'prismatic', xyz:[0,0.006,0.015],  rpy:[0,0,0], axis:[0,1,0],  joint:'L_grip',
     mesh:{file:'ee/openarmx_hand/collision/finger.stl', scale:[0.001,-0.001,0.001], offset:[0,0.05,-0.673]} },
   { name:'L_tcp', parent:'L_hand', type:'fixed', xyz:[0,0,0.08], rpy:[0,0,0], axis:null, joint:null, mesh:null },
-  // 스틱 팁 (그립점 + 45° 방향 0.30m) — HUD·트레일·타격 기준점
-  { name:'L_tip', parent:'L_hand', type:'fixed', xyz:[-0.21213,0,0.29213], rpy:[0,0,0], axis:null, joint:null, mesh:null },
   { name:'R0', parent:'body', type:'fixed',    xyz:[0,-0.031,0.698],   rpy:[PI/2,0,0],  axis:null,    joint:null,
     mesh:{file:'arm/v10/visual/link0.stl', scale:[1,1,1], offset:[0,0,0]} },
   { name:'R1', parent:'R0',   type:'revolute', xyz:[0,0,0.058],        rpy:[0,0,0],     axis:[0,0,1],  joint:'R1',
@@ -984,7 +905,6 @@ const CHAIN = [
   { name:'R_fL', parent:'R_hand', type:'prismatic', xyz:[0,0.006,0.015],  rpy:[0,0,0], axis:[0,1,0],  joint:'R_grip',
     mesh:{file:'ee/openarmx_hand/collision/finger.stl', scale:[0.001,-0.001,0.001], offset:[0,0.05,-0.673]} },
   { name:'R_tcp', parent:'R_hand', type:'fixed', xyz:[0,0,0.08], rpy:[0,0,0], axis:null, joint:null, mesh:null },
-  { name:'R_tip', parent:'R_hand', type:'fixed', xyz:[-0.21213,0,0.29213], rpy:[0,0,0], axis:null, joint:null, mesh:null },
 ];
 
 // ── Three.js 초기화 ───────────────────────────────────────────
@@ -1051,30 +971,6 @@ CHAIN.forEach(lk => { (lk.parent ? groups[lk.parent] : sceneRoot).add(groups[lk.
 const tcpGeo = new THREE.SphereGeometry(0.013, 8, 8);
 ['L_tcp','R_tcp'].forEach(n => groups[n].add(new THREE.Mesh(tcpGeo, MAT.tcp.clone())));
 
-// ── 드럼채 (그리퍼 45° 고정, 팁쪽 테이퍼) ──────────────────────
-['L','R'].forEach(s => {
-  const grp = groups[`${s}_hand`];
-  const sin = Math.sin(STICK.tilt), cos = Math.cos(STICK.tilt);
-  const dir = new THREE.Vector3(STICK.dirSign * sin, 0, cos);
-  const len = STICK.fwd + STICK.back;
-
-  const stickGeo = new THREE.CylinderGeometry(0.0045, 0.0075, len, 10); // 위(팁) 가늘게
-  const stickMat = new THREE.MeshStandardMaterial({ color: 0xc9a063, roughness: 0.6, metalness: 0.05 });
-  const stick = new THREE.Mesh(stickGeo, stickMat);
-  stick.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  stick.position.set(0, 0, STICK.gripZ).addScaledVector(dir, (STICK.fwd - STICK.back) / 2);
-  stick.castShadow = true;
-  grp.add(stick);
-
-  // 팁 비드 (타격점 표시)
-  const bead = new THREE.Mesh(
-    new THREE.SphereGeometry(0.009, 10, 10),
-    new THREE.MeshStandardMaterial({ color: 0xf0e0c0, roughness: 0.45 }));
-  bead.position.set(0, 0, STICK.gripZ).addScaledVector(dir, STICK.fwd);
-  bead.castShadow = true;
-  grp.add(bead);
-});
-
 const MESH_BASE = './meshes/';
 const stlLoader = new STLLoader();
 let loaded = 0, meshTotal = 0;
@@ -1118,7 +1014,7 @@ function updateFK(angles) {
 
 function updateTCPHud() {
   ['L','R'].forEach(s => {
-    const tcp = groups[`${s}_tip`];   // 스틱 팁 = 타격 기준점
+    const tcp = groups[`${s}_tcp`];
     if (!tcp) return;
     const wp = new THREE.Vector3();
     tcp.getWorldPosition(wp);
@@ -1225,7 +1121,7 @@ function updateTCPTrails() {
     if (now - td.lastUpd < TRAIL_UPD) return;
     td.lastUpd = now;
 
-    const tcp = groups[`${arm}_tip`];   // 스틱 팁 궤적
+    const tcp = groups[`${arm}_tcp`];
     if (!tcp) return;
     const pos = new THREE.Vector3();
     tcp.getWorldPosition(pos);
@@ -1523,23 +1419,26 @@ function _breathePose(base, amp) {
  *  smoothstep 보간: 각 구간이 S곡선으로 자연스럽게 연결됨
  */
 function createDrumIntroTimeline(firstDrumPose, preset) {
+  const nu = _arrToAngles(preset.neutralPose);
+  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   const fp = _arrToAngles(preset.frontReadyPose);
 
   // firstDrumPose 방향으로 이미 회전 + J4 상승 → "치고 올라온" 자세
+  // t=3.85에서 팔이 spread-up 상태, t=4.00에서 내려치며 첫 박 시작
   const preLift = { ...firstDrumPose };
   Object.keys(preLift).forEach(k => {
     if (k.endsWith('4')) preLift[k] = clamp((preLift[k] ?? 0) + 0.58, 0.10, 1.70);
   });
 
-  // idle과 동일한 준비 자세(fp)에서 시작 → 스냅 없이 부드럽게 연주 시작
-  // 드럼채가 이미 전방을 겨눈 상태이므로 팔 벌림(armSpread) 후퇴 불필요
   return [
-    { time: 0.00, angles: fp                       },  // 준비 (idle 연속)
-    { time: 1.60, angles: _breathePose(fp, +0.05)  },  // 천천히 숨 들이쉬기
-    { time: 2.90, angles: fp                       },  // 내쉬기
-    { time: 3.35, angles: _breathePose(fp, +0.04)  },  // 살짝 코킹
-    { time: 3.85, angles: preLift                  },  // 첫 드럼 위로 들어올림
-    { time: 4.00, angles: firstDrumPose            },  // ▶ 첫 타격 (위에서 내려치기)
+    { time: 0.00, angles: nu                       },
+    { time: 1.30, angles: as                       },  // 팔 양옆 벌림
+    { time: 2.75, angles: fp                       },  // 앞으로 들어옴
+    { time: 3.00, angles: fp                       },  // 홀드
+    { time: 3.30, angles: _breathePose(fp, +0.04)  },  // 숨 들이쉬기
+    { time: 3.70, angles: fp                       },  // 숨 내쉬기 → 정지
+    { time: 3.85, angles: preLift                  },  // 첫 드럼 방향으로 올라간 자세
+    { time: 4.00, angles: firstDrumPose            },  // ▶ 드럼 시작 (위에서 내려치기)
   ];
 }
 
@@ -1556,13 +1455,15 @@ function createDrumIntroTimeline(firstDrumPose, preset) {
 function createDrumOutroTimeline(lastDrumPose, preset, startTime) {
   const s  = startTime;
   const fp = _arrToAngles(preset.frontReadyPose);
-  // 마지막 타격 → 준비 자세(fp = idle)로 복귀 후 정지 (스냅 없이 idle과 연속)
+  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
+  const nu = _arrToAngles(preset.neutralPose);
   return [
     { time: s + 0.00, angles: lastDrumPose              },
-    { time: s + 0.60, angles: fp                         },  // 준비 자세 복귀
-    { time: s + 1.00, angles: _breathePose(fp, +0.04)   },  // 숨쉬기
-    { time: s + 1.60, angles: fp                         },  // 정지
-    { time: s + 4.00, angles: fp                         },  // idle 홀드
+    { time: s + 0.50, angles: fp                         },  // 준비 자세 복귀
+    { time: s + 0.80, angles: _breathePose(fp, +0.04)   },  // 숨쉬기
+    { time: s + 1.25, angles: fp                         },  // 정지
+    { time: s + 2.70, angles: as                         },  // 팔 양옆 벌리며 후퇴
+    { time: s + 4.00, angles: nu                         },  // 중립 복귀
   ];
 }
 
@@ -1684,7 +1585,7 @@ window.stopAnim = function () {
   _stopAudio();
   clearTCPTrails();
   document.getElementById('scrubber').value = 0;
-  updateFK(_idlePose());
+  updateFK({ ...NEUTRAL });
   updateTimeLbl(0);
   _syncPlayBtns();
   _updatePlayhead(0);
@@ -2125,7 +2026,7 @@ function addEvent(drumId, beat) {
     const otherKr  = drum.arm === 'L' ? '오른팔' : '왼팔';
     // 반대팔로 이 드럼을 칠 수 있는지 체크
     const distOther = reachDist({ ...drum, arm: otherArm });
-    const hint = distOther <= STICK_REACH
+    const hint = distOther <= MAX_REACH
       ? ` — ${otherKr}은 도달 가능(${distOther.toFixed(2)}m)하니 드럼 설정에서 팔을 바꿔보세요`
       : ` (${otherKr}도 도달 불가 ${distOther.toFixed(2)}m)`;
     setStatus(`❌ beat ${beat.toFixed(2)}: ${armKr}은 이미 이 박자에 다른 드럼을 칩니다${hint}`);
@@ -2213,12 +2114,11 @@ window.previewDrumHit = function (drumId, vel = 'medium') {
   const velLabel = { soft:'약', medium:'중', hard:'강' }[vel];
   setStatus(`[${drum.name}] ${drum.arm === 'L' ? '왼팔' : '오른팔'} 미리보기 (${velLabel}) — 거리 ${reachDist(drum).toFixed(2)}m`);
 
-  const idle = _idlePose();
   const phases = [
-    { from: idle,                                    to: computeStrikePose(drum, 'raise',   vel), dur: 0.14 },
+    { from: { ...NEUTRAL },                          to: computeStrikePose(drum, 'raise',   vel), dur: 0.14 },
     { from: computeStrikePose(drum, 'raise',   vel), to: computeStrikePose(drum, 'strike',  vel), dur: 0.09 },
     { from: computeStrikePose(drum, 'strike',  vel), to: computeStrikePose(drum, 'rebound', vel), dur: 0.09 },
-    { from: computeStrikePose(drum, 'rebound', vel), to: idle,                                    dur: 0.22 },
+    { from: computeStrikePose(drum, 'rebound', vel), to: { ...NEUTRAL },                          dur: 0.22 },
   ];
 
   let phaseIdx = 0;
@@ -2231,7 +2131,7 @@ window.previewDrumHit = function (drumId, vel = 'medium') {
       _previewTimer = null;
       window._drumPreviewActive = false;
       document.querySelector('.dvp-btn.active')?.classList.remove('active');
-      updateFK(_idlePose());
+      updateFK({ ...NEUTRAL });
       return;
     }
 
@@ -2580,8 +2480,8 @@ function renderDrumList() {
     const typeInfo  = DRUM_TYPES[drum.type] || DRUM_TYPES.snare;
     const isKick    = drum.type === 'kick';
     const dist      = reachDist(drum);
-    const reachCls  = isKick ? 'reach-ok' : dist > STICK_REACH ? 'reach-err' : dist > STICK_REACH * 0.88 ? 'reach-warn' : 'reach-ok';
-    const reachTxt  = isKick ? '표시 전용 (팔 미사용)' : dist > STICK_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
+    const reachCls  = isKick ? 'reach-ok' : dist > MAX_REACH ? 'reach-err' : dist > MAX_REACH * 0.88 ? 'reach-warn' : 'reach-ok';
+    const reachTxt  = isKick ? '표시 전용 (팔 미사용)' : dist > MAX_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
 
     return `
 <div class="drum-item" data-id="${drum.id}">
@@ -2678,8 +2578,8 @@ window.updateDrumPos = function (id, axis, val) {
     const dist     = reachDist(drum);
     const badge    = item.querySelector('.drum-reach-badge');
     if (badge) {
-      badge.className = 'drum-reach-badge ' + (isKick ? 'reach-ok' : dist > STICK_REACH ? 'reach-err' : dist > STICK_REACH * 0.88 ? 'reach-warn' : 'reach-ok');
-      badge.textContent = isKick ? '표시 전용 (팔 미사용)' : dist > STICK_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
+      badge.className = 'drum-reach-badge ' + (isKick ? 'reach-ok' : dist > MAX_REACH ? 'reach-err' : dist > MAX_REACH * 0.88 ? 'reach-warn' : 'reach-ok');
+      badge.textContent = isKick ? '표시 전용 (팔 미사용)' : dist > MAX_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
     }
     // 동기: 숫자입력 → 슬라이더
     const inps    = item.querySelectorAll('.drum-pos-inp');
@@ -2807,7 +2707,7 @@ window.addEventListener('resize', () => renderTimeline());
     saveSettings();
   });
 });
-updateFK(_idlePose());
+updateFK({ ...NEUTRAL });
 renderDrumList();
 renderSkinPresets();
 rebuildDrumSpheres();
