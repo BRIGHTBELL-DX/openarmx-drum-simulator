@@ -230,10 +230,15 @@ function _pureFK(jointAngles, arm) {
 
 // ── 수치 IK: J1~J6 최적화, J7 고정 ────────────────────────────
 // L·R 팔 관절 한계 (물리적 충돌 방지)
+// L1 상한(구 0.2)·R1 하한(구 -0.2)은 스틱 이전 시스템에서 정한 값이라
+// "팔이 몸 뒤로 젖혀지며 뻗는" 자세를 원천 차단하고 있었다 — 실제로 하이햇
+// 등에서 그레이디언트가 이 벽에 눌려붙어(J1=0.19≈0.2) J2가 대신 한계까지
+// 밀리는 부자연스러운 해로 이어짐. 양쪽으로 넓혀 자유탐색이 자체적으로
+// "J1·J2가 함께 크게 움직이는" 더 자연스러운 분기를 찾도록 한다.
 const _IK_LIMITS = {
-  L1:[-2.0, 0.2], L2:[-1.65, 0.30], L3:[-2.9, 2.9],
+  L1:[-2.0, 1.8], L2:[-1.90, 0.30], L3:[-2.9, 2.9],
   L4:[0.05, 1.70], L5:[-2.9, 2.9], L6:[-1.57, 1.57],
-  R1:[-0.2, 2.0], R2:[-0.30, 1.65], R3:[-2.9, 2.9],
+  R1:[-1.8, 2.0], R2:[-0.30, 1.90], R3:[-2.9, 2.9],
   R4:[0.05, 1.70], R5:[-2.9, 2.9], R6:[-1.57, 1.57],
 };
 
@@ -435,6 +440,14 @@ function _solveStickStrike(drum, vel) {
   const j5Sign = s === 'L' ? -1 : 1;
   const J5_SEEDS = [0, 0.7, 1.1, 1.4, -0.7].map(v => v * j5Sign);
 
+  // "팔이 몸 뒤로 젖혀지는" 후인 자세 — J1이 여기서 시작하면 그레이디언트가
+  // 그 방향의 국소해(J1·J2가 함께 크게, 부드러운 자세)로 수렴하는 경우가 많다.
+  // L1·R1 상하한을 넓힌 것만으론 부족했다(그레이디언트가 기존 국소해에 안착) —
+  // 시작점을 이쪽으로 명시적으로 줘야 그 분기가 실제로 탐색된다.
+  // 우선 시도하고, 수직성이 이미 충분히 좋으면(>0.95) 바로 채택해 비용을 아낀다.
+  const j1BackSign = s === 'L' ? 1 : -1;
+  const J1_SEEDS = [j1BackSign * 0.9, null];   // null = 해석적 추정치 그대로
+
   // raise 위상의 J7 (computeStrikePose와 동일 공식, medium velocity 기준)
   // — 후보 평가용. 관절 크기 자체엔 목표가 없다(가까운/먼 드럼 모두 필요한
   // 만큼 J1~J6을 움직여도 됨). 유일한 기준은 "J7 스윙이 하늘→바닥으로
@@ -443,37 +456,41 @@ function _solveStickStrike(drum, vel) {
   const raiseJ7 = j7 + (raiseJ7Phase - j7) * 0.8;
 
   let overallBest = null, overallScore = -Infinity;
-  for (const j5Seed of J5_SEEDS) {
-    let proxy = { x: drum.pos.x, y: drum.pos.y, z: drum.pos.z };
-    let best = null, bestErr = Infinity, init = null;
-    const DAMPING = 0.5;
-    for (let outer = 0; outer < 14; outer++) {
-      if (!init) {
-        const guess = _analyticGuess({ ...drum, pos: proxy }, 'strike');
-        init = {};
-        [1,2,3,4,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
-        init[`${s}5`] = j5Seed;
+  outer_seed:
+  for (const j1Seed of J1_SEEDS) {
+    for (const j5Seed of J5_SEEDS) {
+      let proxy = { x: drum.pos.x, y: drum.pos.y, z: drum.pos.z };
+      let best = null, bestErr = Infinity, init = null;
+      const DAMPING = 0.5;
+      for (let outer = 0; outer < 14; outer++) {
+        if (!init) {
+          const guess = _analyticGuess({ ...drum, pos: proxy }, 'strike');
+          init = {};
+          [2,3,4,6].forEach(i => { init[`${s}${i}`] = guess[`${s}${i}`]; });
+          init[`${s}1`] = j1Seed ?? guess[`${s}1`];
+          init[`${s}5`] = j5Seed;
+        }
+        const sol = _solveIK(s, proxy, init, j7,
+                              Object.keys(extraLimits).length ? extraLimits : undefined);
+        [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = sol[`${s}${i}`]; });   // 다음 반복 웜스타트
+        const tip = _pureFKStick(sol, s).tip;
+        const err = target.clone().sub(tip);
+        const errLen = err.length();
+        if (errLen < bestErr) { bestErr = errLen; best = sol; }
+        if (errLen < 0.004) break;
+        proxy = { x: proxy.x + err.x * DAMPING, y: proxy.y + err.y * DAMPING, z: proxy.z + err.z * DAMPING };
       }
-      const sol = _solveIK(s, proxy, init, j7,
-                            Object.keys(extraLimits).length ? extraLimits : undefined);
-      [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = sol[`${s}${i}`]; });   // 다음 반복 웜스타트
-      const tip = _pureFKStick(sol, s).tip;
-      const err = target.clone().sub(tip);
-      const errLen = err.length();
-      if (errLen < bestErr) { bestErr = errLen; best = sol; }
-      if (errLen < 0.004) break;
-      proxy = { x: proxy.x + err.x * DAMPING, y: proxy.y + err.y * DAMPING, z: proxy.z + err.z * DAMPING };
-    }
-    if (bestErr >= 0.015) continue;   // 이 시드는 수렴 실패 → 제외
+      if (bestErr >= 0.015) continue;   // 이 시드는 수렴 실패 → 제외
 
-    // raise→strike 스윙 벡터의 수직성 평가 (같은 J1~J6, J7만 raise↔strike)
-    const raiseTip  = _pureFKStick({ ...best, [`${s}7`]: raiseJ7 }, s).tip;
-    const strikeTip = _pureFKStick(best, s).tip;
-    const swing = strikeTip.clone().sub(raiseTip);
-    const swingLen = swing.length();
-    const verticality = swingLen > 1e-4 ? (-swing.z / swingLen) : -1;   // 1=완전 수직 하강
-    if (verticality > overallScore) { overallScore = verticality; overallBest = best; overallBest._err = bestErr; }
-    if (overallScore > 0.95) break;   // 충분히 수직 — 더 찾을 필요 없음(속도)
+      // raise→strike 스윙 벡터의 수직성 평가 (같은 J1~J6, J7만 raise↔strike)
+      const raiseTip  = _pureFKStick({ ...best, [`${s}7`]: raiseJ7 }, s).tip;
+      const strikeTip = _pureFKStick(best, s).tip;
+      const swing = strikeTip.clone().sub(raiseTip);
+      const swingLen = swing.length();
+      const verticality = swingLen > 1e-4 ? (-swing.z / swingLen) : -1;   // 1=완전 수직 하강
+      if (verticality > overallScore) { overallScore = verticality; overallBest = best; overallBest._err = bestErr; }
+      if (overallScore > 0.95) break outer_seed;   // 충분히 수직 — 더 찾을 필요 없음(속도)
+    }
   }
   // 모든 시드가 수렴 실패한 극단적 경우에만 폴백(첫 시드 결과라도 사용)
   const solved  = overallBest ?? _analyticGuess(drum, 'strike');
@@ -2882,3 +2899,4 @@ if (timelineEvents.length) {
   document.getElementById('scrubber').max = _playDur;
 }
 setStatus('드럼 키트 로드됨 — 타임라인 클릭으로 배치 · 뷰포트 드래그로 위치 이동');
+
