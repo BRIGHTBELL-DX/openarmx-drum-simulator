@@ -2413,23 +2413,30 @@ window.autoGeneratePattern = function () {
   const lcyc = (offset) => Ld.length ? Ld[((offset) % Ld.length + Ld.length) % Ld.length].id : null;
   const rcyc = (offset) => Rd.length ? Rd[((offset) % Rd.length + Rd.length) % Rd.length].id : null;
 
-  // 백비트용 R팔 기본 드럼 (스네어 우선)
-  const Rback = Rd.find(d => d.type === 'snare')?.id ?? Rd[0]?.id;
-  // 서브디비전용 R팔 (라이드 우선)
-  const Rsub  = Rd.find(d => ['ride','hihat'].includes(d.type))?.id
-              ?? Rd.find(d => d.id !== Rback)?.id ?? Rback;
+  // ── 역할별 드럼 참조 (기본 배치: L=하이햇·크래쉬·스네어·스몰탐, R=미들탐·플로어탐·라이드) ──
+  // 스네어가 L팔에 있으므로 백비트도 L팔이 담당한다. R팔 백비트는 라이드가
+  // 타임키핑에 적합해 우선 사용(과거엔 R에 스네어가 있다고 가정해 항상 못 찾고
+  // 미들탐으로 대체되던 버그가 있었음 — 실물 테스트 시 부자연스러운 원인이었음).
+  const Lhihat = Ld.find(d => d.type === 'hihat')?.id;
+  const Lsnare = Ld.find(d => d.type === 'snare')?.id;
+  const Lcrash = Ld.find(d => d.type === 'crash')?.id;
+  const Ltom   = Ld.find(d => d.type === 'tom_h')?.id;
+  const Rride  = Rd.find(d => d.type === 'ride')?.id;
+
+  const Rback = Rride ?? Rd[0]?.id;
+  const subR  = Rd.find(d => d.id !== Rback)?.id ?? Rback;
 
   const backOff = bpb >= 4 ? [1, bpb - 1] : [Math.floor(bpb / 2)];
   const isFill  = bar => (bar + 1) % 4 === 0;
 
-  // ── 스타일 5종 ─────────────────────────────────────────────────
+  // ── 스타일 7종 ─────────────────────────────────────────────────
   // 핵심 규칙:
   //  ① 같은 마디 L팔은 하나의 드럼만 (팔 순간이동 방지)
-  //  ② R팔 스네어(Rback)는 backOff 위치에 항상 (박자감 유지)
+  //  ② R팔 기본 드럼(Rback)은 backOff 위치에 항상 (박자감 유지)
   //  ③ 드럼 교체는 마디 단위 — 8분도 같은 드럼 사용
   //  ④ 필(4마디마다): 마지막 박자에 L·R 각 1개 다른 드럼 추가
-
-  const subR = Rd.find(d => d.id !== Rback)?.id; // 스네어 외 R드럼
+  //  ⑤ 생성이 끝나면 하단 커버리지 보장 로직이 킥을 제외한 7개 드럼 중
+  //     사용되지 않은 드럼을 찾아 자동으로 채워 넣는다(실물 테스트 목적)
 
   const STYLES = [
     {
@@ -2525,6 +2532,45 @@ window.autoGeneratePattern = function () {
         }
       },
     },
+
+    {
+      // 라이드 그루브 — R 라이드가 8분 스킵비트 타임키핑, L은 하이햇+스네어 백비트
+      name: '라이드 그루브',
+      gen(bs, bar) {
+        for (let b = 0; b < bpb; b++) {
+          safeAdd(Rback, bs + b);
+          if (coin(0.55)) safeAdd(Rback, bs + b + 0.5);
+        }
+        backOff.forEach(b => safeAdd(Lsnare ?? lcyc(0), bs + b));
+        const Lh = Lhihat ?? lcyc(1);
+        for (let b = 0; b < bpb; b++) {
+          if (!backOff.includes(b)) safeAdd(Lh, bs + b);
+        }
+        if (isFill(bar)) {
+          safeAdd(Ltom ?? lcyc(2), bs + bpb - 2);
+          if (subR) safeAdd(subR, bs + bpb - 1);
+        }
+      },
+    },
+
+    {
+      // 온 드럼 필 — 실물 테스트용: 마디마다 여러 드럼을 빠르게 순환 노출
+      name: '온 드럼 필',
+      gen(bs, bar) {
+        const mL  = lcyc(bar);
+        const mL2 = lcyc(bar + 1);
+        const mR  = rcyc(bar);
+        for (let b = 0; b < bpb; b++) {
+          safeAdd(b % 2 === 0 ? mL : mL2, bs + b);
+          safeAdd(mR, bs + b + 0.5);
+        }
+        backOff.forEach(b => safeAdd(Lsnare ?? mL, bs + b));
+        if (isFill(bar)) {
+          safeAdd(Lcrash ?? lcyc(bar + 2), bs + bpb - 1);
+          safeAdd(rcyc(bar + 2), bs + bpb - 1);
+        }
+      },
+    },
   ];
 
   const style = STYLES[Math.floor(Math.random() * STYLES.length)];
@@ -2533,13 +2579,13 @@ window.autoGeneratePattern = function () {
     style.gen(bar * bpb + 1, bar);
   }
 
-  // 오프닝 악센트 (L팔 첫 드럼)
-  if (Ld.length) safeAdd(Ld[0].id, 1);
+  // 오프닝 악센트 — 크래시(있으면)로 카운트인 느낌, 없으면 L 첫 드럼
+  safeAdd(Lcrash ?? Ld[0]?.id, 1);
 
   // ── 밀도 보장: 팔당 최소 0.5s(120bpm=1박) 이상 공백 금지 ──────
   // 크래시 계열은 강조 포인트 전용이므로 필러에서 제외, 리듬 드럼만 사용
-  const FILLER_TYPES_L = ['hihat', 'tom_h', 'tom_m', 'tom_f'];
-  const FILLER_TYPES_R = ['snare', 'tom_f', 'ride', 'tom_m', 'tom_h'];
+  const FILLER_TYPES_L = ['hihat', 'tom_h', 'snare'];
+  const FILLER_TYPES_R = ['ride', 'tom_m', 'tom_f'];
   const fillL = Ld.filter(d => FILLER_TYPES_L.includes(d.type));
   const fillR = Rd.filter(d => FILLER_TYPES_R.includes(d.type));
 
@@ -2566,11 +2612,22 @@ window.autoGeneratePattern = function () {
     }
   });
 
+  // ── 커버리지 보장: 실물 드럼 테스트 목적 — 킥을 제외한 7개 드럼 중
+  // 이번 생성에서 한 번도 안 쓰인 드럼을 찾아 빈 박자에 채워 넣는다.
+  // (스타일별로 크래시·라이드 등이 우연히 빠질 수 있어, 여기서 최종 보정)
+  const hitCount = id => timelineEvents.filter(e => e.drumId === id).length;
+  [...Ld, ...Rd].filter(d => hitCount(d.id) === 0).forEach(d => {
+    for (let b = 1; b <= totalB; b += 0.5) {
+      if (safeAdd(d.id, parseFloat(b.toFixed(3)))) break;
+    }
+  });
+
   _commitTimeline();
   stopAnim();
   if (timelineEvents.length) playAnim();
   setStatus(`🎲 자동 생성: ${style.name} (${timelineEvents.length}개)`);
 };
+
 
 // ═══════════════════════════════════════════════════════════════
 //  드럼 키트 패널
