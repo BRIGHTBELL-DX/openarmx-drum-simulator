@@ -100,7 +100,7 @@ function saveSettings() {
       totalBars:    parseInt(document.getElementById('bars-inp')?.value)  || totalBars,
       introChecked: document.getElementById('chk-intro')?.checked ?? true,
       outroChecked: document.getElementById('chk-outro')?.checked ?? true,
-      stickJ7Offset, strokeJ4Offset, strokeJ56Offset,
+      stickJ7Offset,
     }));
   } catch(e) {}
 }
@@ -115,8 +115,6 @@ function loadSettings() {
     if (s.introChecked != null) { const el = document.getElementById('chk-intro'); if (el) el.checked = s.introChecked; }
     if (s.outroChecked != null) { const el = document.getElementById('chk-outro'); if (el) el.checked = s.outroChecked; }
     if (s.stickJ7Offset   != null) { stickJ7Offset   = s.stickJ7Offset;   _setSliderPair('stick-j7-slider',   'stick-j7-val',   stickJ7Offset); }
-    if (s.strokeJ4Offset  != null) { strokeJ4Offset  = s.strokeJ4Offset;  _setSliderPair('stroke-j4-slider',  'stroke-j4-val',  strokeJ4Offset); }
-    if (s.strokeJ56Offset != null) { strokeJ56Offset = s.strokeJ56Offset; _setSliderPair('stroke-j56-slider', 'stroke-j56-val', strokeJ56Offset); }
     updateTLInfo();
   } catch(e) {}
 }
@@ -151,9 +149,10 @@ let bpm = 120;
 let beatsPerBar = 4;
 let totalBars = 8;
 let defaultVel     = 'medium'; // 타임라인 클릭 기본 velocity
-let stickJ7Offset  = 0;  // 손목 스냅 J7 보정 (rad) — 양수 = 더 강하게 내려치는 방향
-let strokeJ4Offset = 0;  // 팔꿈치 뻗음 J4 보정 (rad)
-let strokeJ56Offset= 0;  // 전완 회전 J5·J6 보정 (rad)
+// 타격점(J1~J7)은 고정 — raise 시 J7이 얼마나 더 젖혀지는지(들어올리는 높이)만 조절.
+// 양수 = 더 높이 들어 강하게, 음수 = 낮게 들어 약하게. 팔별 부호(L:-/R:+)는
+// computeStrikePose에서 자동 처리되므로 여기선 하나의 magnitude만 관리한다.
+let stickJ7Offset  = 0;
 let PX_PER_BEAT = 60; // renderTimeline()에서 동적으로 재계산
 
 function updatePxPerBeat() {
@@ -397,12 +396,13 @@ function _solveStickStrike(drum, vel) {
   const vs    = VEL_SCALE[vel] ?? VEL_SCALE.medium;
   const style = DRUM_TYPES[drum.type]?.style || 'full';
   const styleScale = { big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0;
-  const j7Raw = 0.18 * vs.j7Strike * styleScale + stickJ7Offset;
+  // strike 위상의 J7은 고정 타격점 — 스트로크 튜닝(stickJ7Offset)의 영향을 받지
+  // 않는다(사용자 요구: 타격점은 유지, raise 높이만 조절). 캐시 키에도 넣지 않음.
+  const j7Raw = 0.18 * vs.j7Strike * styleScale;
   const j7    = s === 'L' ? j7Raw : -j7Raw;
 
   const key = [drum.id, vel,
-               drum.pos.x.toFixed(3), drum.pos.y.toFixed(3), drum.pos.z.toFixed(3),
-               stickJ7Offset.toFixed(3)].join('|');
+               drum.pos.x.toFixed(3), drum.pos.y.toFixed(3), drum.pos.z.toFixed(3)].join('|');
   const hit = _strikeSolveCache.get(key);
   if (hit) return hit;
 
@@ -516,33 +516,22 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const pose = { ...NEUTRAL };
   [1,2,3,4,5,6,7].forEach(i => { pose[`${s}${i}`] = solved[`${s}${i}`]; });
 
-  // raise/rebound = 손목(J7) 코킹 — 팔 관절(J1~J6)은 strike와 동일
+  // raise/rebound = 손목(J7) 코킹 — 팔 관절(J1~J6)은 strike와 완전히 동일
+  // (타격점 고정). 코킹 폭은 velocity(vs.raiseZ/rebZ)와 스트로크 튜닝
+  // (stickJ7Offset)이 함께 결정 — 둘 다 "raise 위상의 J7 기울기"에만 영향을
+  // 주고 strike의 타격점(j7Strike 포함 전체 포즈)은 절대 건드리지 않는다.
+  // stickJ7Offset은 baseRaw(부호 반영 전, 왼팔 기준 음수)에 직접 더해지므로
+  // 왼팔은 자동으로 음수 방향, 오른팔은 부호가 뒤집혀 양수 방향으로 적용된다.
   // cockScale 0.8: 과도한 손목 스윙(팁이 1m 가까이 치솟는 현상) 억제
   // → 전환 시 스틱이 인접 드럼을 스치는 문제 해소 (실측 검증)
   if (phase === 'raise' || phase === 'rebound') {
-    const baseRaw  = ({ raise: -0.86, rebound: -0.54 })[phase] * styleScale;
+    const baseRaw  = ({ raise: -0.86, rebound: -0.54 })[phase] * styleScale - stickJ7Offset;
     const j7Phase  = s === 'L' ? baseRaw : -baseRaw;
     const velScale = phase === 'raise'
       ? clamp(vs.raiseZ, 0.55, 1.35)
       : clamp(vs.rebZ,   0.50, 1.30);
     const cockScale = 0.8 * velScale;
     pose[`${s}7`] = j7Strike + (j7Phase - j7Strike) * cockScale;
-  }
-
-  // velocity J4 보정 — strike만 적용
-  if (vs.j4 !== 0 && phase === 'strike') {
-    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + vs.j4, 0, 1.70);
-  }
-
-  // 스트로크 튜닝 오프셋 (타격 직전 최대, raise 자연 유지, rebound 서서히 복귀)
-  const strokePhaseW = { raise: 0, strike: 1.0, rebound: 0.3 }[phase] ?? 0;
-  if (strokeJ4Offset !== 0) {
-    pose[`${s}4`] = clamp((pose[`${s}4`] ?? 0) + strokeJ4Offset * strokePhaseW, 0, 1.70);
-  }
-  if (strokeJ56Offset !== 0) {
-    const sign = s === 'L' ? 1 : -1;
-    pose[`${s}5`] = clamp((pose[`${s}5`] ?? 0) + strokeJ56Offset * strokePhaseW * sign, -1.5, 1.5);
-    pose[`${s}6`] = clamp((pose[`${s}6`] ?? 0) + strokeJ56Offset * strokePhaseW * sign, -0.75, 0.75);
   }
 
   return pose;
@@ -2837,9 +2826,7 @@ function _bindStrokePair(sliderId, numId, setter, min, max) {
     _rebuildStroke();
   });
 }
-_bindStrokePair('stick-j7-slider',  'stick-j7-val',  v => { stickJ7Offset  = v; saveSettings(); }, -1.5, 1.5);
-_bindStrokePair('stroke-j4-slider', 'stroke-j4-val', v => { strokeJ4Offset = v; saveSettings(); }, -1.0, 1.0);
-_bindStrokePair('stroke-j56-slider','stroke-j56-val',v => { strokeJ56Offset= v; saveSettings(); }, -1.5, 1.5);
+_bindStrokePair('stick-j7-slider',  'stick-j7-val',  v => { stickJ7Offset  = v; saveSettings(); }, -0.6, 0.6);
 document.getElementById('bpm-inp').addEventListener('input', () => saveSettings());
 document.getElementById('meter-sel').addEventListener('change', () => {
   beatsPerBar = parseInt(document.getElementById('meter-sel').value) || 4;
@@ -2902,5 +2889,6 @@ if (timelineEvents.length) {
   document.getElementById('scrubber').max = _playDur;
 }
 setStatus('드럼 키트 로드됨 — 타임라인 클릭으로 배치 · 뷰포트 드래그로 위치 이동');
+
 
 

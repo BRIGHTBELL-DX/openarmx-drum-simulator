@@ -51,32 +51,16 @@
   <div id="stroke-panel">
     <div class="panel-header">🎯 스트로크 튜닝</div>
     <div class="panel-hint">
-      타격 시점 기준 적용<br>
-      raise: 0 · strike: 1.0 · rebound: 0.3
+      타격점(J1~J7)은 고정 — 들어 올리는 높이(J7)만 조절<br>
+      + : 더 높이 들어 강하게 · − : 낮게 들어 약하게
     </div>
     <div class="stroke-sliders">
 
       <div class="stroke-row">
-        <div class="stroke-label">팔꿈치 뻗음 <span class="stroke-joint">J4</span></div>
+        <div class="stroke-label">타격 강도(들어올림) <span class="stroke-joint">J7</span></div>
         <div class="stroke-ctrl">
-          <input id="stroke-j4-slider" class="stroke-slider" type="range" min="-1.0" max="1.0" step="0.05" value="0">
-          <input id="stroke-j4-val" class="stroke-val-inp" type="number" min="-1.0" max="1.0" step="0.05" value="0">
-        </div>
-      </div>
-
-      <div class="stroke-row">
-        <div class="stroke-label">전완 회전 <span class="stroke-joint">J5·J6</span></div>
-        <div class="stroke-ctrl">
-          <input id="stroke-j56-slider" class="stroke-slider" type="range" min="-1.5" max="1.5" step="0.05" value="0">
-          <input id="stroke-j56-val" class="stroke-val-inp" type="number" min="-1.5" max="1.5" step="0.05" value="0">
-        </div>
-      </div>
-
-      <div class="stroke-row">
-        <div class="stroke-label">손목 스냅 <span class="stroke-joint">J7</span></div>
-        <div class="stroke-ctrl">
-          <input id="stick-j7-slider" class="stroke-slider" type="range" min="-1.5" max="1.5" step="0.05" value="0">
-          <input id="stick-j7-val" class="stroke-val-inp" type="number" min="-1.5" max="1.5" step="0.05" value="0">
+          <input id="stick-j7-slider" class="stroke-slider" type="range" min="-0.6" max="0.6" step="0.02" value="0">
+          <input id="stick-j7-val" class="stroke-val-inp" type="number" min="-0.6" max="0.6" step="0.02" value="0">
         </div>
       </div>
 
