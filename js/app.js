@@ -411,6 +411,15 @@ function _solveStickStrike(drum, vel) {
 
   const isCymbal = ['crash', 'ride', 'hihat'].includes(drum.type);
 
+  // 드럼 헤드 표면 법선(스틱이 파고들어야 하는 방향의 반대) — 렌더링 코드의
+  // drumHead.rotation.y = -(tiltDeg*PI/180)와 동일한 프레임/부호로 계산.
+  // 탐처럼 tilt가 큰(15°) 드럼은 헤드가 로봇 쪽으로 기울어 있어, 법선을
+  // 무시하고 순수 수직으로만 내려치면 스틱이 헤드에 스치듯 비스듬히 닿는다.
+  // 심벌은 원래 옆면을 스치듯 치는 게 자연스러워 이 보정에서 제외한다.
+  const tiltDeg    = drum.tiltDeg ?? DRUM_TYPES[drum.type]?.tilt ?? 0;
+  const tiltRad    = tiltDeg * PI / 180;
+  const headNormal = new THREE.Vector3(-Math.sin(tiltRad), 0, Math.cos(tiltRad));
+
   // 관절 한계 — J4 최소 굽힘 정도만 강제하고, J1·J2·J6은 자유롭게 둔다.
   // (J1을 특정 방향으로 강제하면 "1번은 작게, 필요한 만큼만" 요구와 충돌한다)
   const extraLimits = {};
@@ -498,10 +507,61 @@ function _solveStickStrike(drum, vel) {
       if (overallScore > 0.95) break outer_seed;   // 충분히 수직 — 더 찾을 필요 없음(속도)
     }
   }
+  // ── 접촉각 보정 ────────────────────────────────────────────────
+  // 위에서 찾은 자세(overallBest)는 위치·수직성만 기준으로 골랐기 때문에,
+  // 헤드가 기울어진 드럼(탐류 15° 등)에서는 스틱이 헤드에 거의 평행하게
+  // (스치듯) 닿을 수 있다. 이미 찾은 자연스러운 자세에서 "웜스타트"로 J7을
+  // 소폭(최대 ±0.6)만 바꿔 다시 수렴시켜, 접촉각이 실제로 개선될 때만
+  // 채택한다 — 큰 배율로 J7을 바꾸면 raise/rebound 스윙이 함께 커져
+  // "손목이 과하게 꺾이는" 부작용이 생기므로 이번엔 작은 폭만 시도한다.
+  // (raise/rebound에도 이 델타를 그대로 더해서 스윙 폭 자체는 안 변한다 —
+  // computeStrikePose 참고)
+  let contactDelta = 0;
+  let finalPose = overallBest;
+  if (!isCymbal && overallBest) {
+    const baseDir     = _pureFKStick(overallBest, s).dir;
+    const baseContact = -baseDir.dot(headNormal);
+    let bestDeltaScore = baseContact * 0.7 + overallScore * 0.3;
+    if (baseContact < 0.5) {   // 이미 충분히 수직으로 닿으면 손대지 않음
+      const DELTA_CANDIDATES = [-0.3, -0.6, 0.3, 0.6];
+      for (const d of DELTA_CANDIDATES) {
+        const j7Try = j7 + d;
+        let proxy = { x: drum.pos.x, y: drum.pos.y, z: drum.pos.z };
+        let init  = { ...overallBest };
+        let cand  = overallBest, candErr = Infinity;
+        for (let outer = 0; outer < 14; outer++) {
+          const sol = _solveIK(s, proxy, init, j7Try,
+                                Object.keys(extraLimits).length ? extraLimits : undefined);
+          [1,2,3,4,5,6].forEach(i => { init[`${s}${i}`] = sol[`${s}${i}`]; });
+          const tip = _pureFKStick(sol, s).tip;
+          const err = target.clone().sub(tip);
+          const errLen = err.length();
+          if (errLen < candErr) { candErr = errLen; cand = sol; }
+          if (errLen < 0.004) break;
+          proxy = { x: proxy.x + err.x * 0.5, y: proxy.y + err.y * 0.5, z: proxy.z + err.z * 0.5 };
+        }
+        if (candErr >= 0.015) continue;   // 웜스타트로도 수렴 실패 → 제외
+
+        const candStrikeTip = _pureFKStick(cand, s).tip;
+        const candRaiseTip  = _pureFKStick({ ...cand, [`${s}7`]: raiseJ7 + d }, s).tip;
+        const candSwing     = candStrikeTip.clone().sub(candRaiseTip);
+        const candSwingLen  = candSwing.length();
+        const candVert      = candSwingLen > 1e-4 ? (-candSwing.z / candSwingLen) : -1;
+        const candDir       = _pureFKStick(cand, s).dir;
+        const candContact   = -candDir.dot(headNormal);
+        const candScore     = candContact * 0.7 + candVert * 0.3;
+
+        if (candScore > bestDeltaScore) {
+          bestDeltaScore = candScore; contactDelta = d; finalPose = cand;
+        }
+      }
+    }
+  }
+
   // 모든 시드가 수렴 실패한 극단적 경우에만 폴백(첫 시드 결과라도 사용)
-  const solved  = overallBest ?? _analyticGuess(drum, 'strike');
+  const solved  = finalPose ?? _analyticGuess(drum, 'strike');
   const errTip  = overallBest ? overallBest._err : 0.999;
-  const result = { pose: solved, ok: errTip < 0.015, j7Strike: j7 };
+  const result = { pose: solved, ok: errTip < 0.015, j7Strike: j7 + contactDelta, nominalJ7: j7, contactDelta };
   if (_strikeSolveCache.size > 300) _strikeSolveCache.clear();
   _strikeSolveCache.set(key, result);
   return result;
@@ -513,7 +573,7 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   const vs    = VEL_SCALE[vel] ?? VEL_SCALE.medium;
   const styleScale = { big:1.05, wrist:1.00, full:0.88, none:0 }[style] ?? 1.0;
 
-  const { pose: solved, j7Strike } = _solveStickStrike(drum, vel);
+  const { pose: solved, j7Strike, nominalJ7, contactDelta } = _solveStickStrike(drum, vel);
 
   // 포즈 조립 (해당 팔만 — buildKeyframes에서 L/R 트랙 분리)
   const pose = { ...NEUTRAL };
@@ -527,6 +587,12 @@ function computeStrikePose(drum, phase, vel = 'medium') {
   // 왼팔은 자동으로 음수 방향, 오른팔은 부호가 뒤집혀 양수 방향으로 적용된다.
   // cockScale 0.8: 과도한 손목 스윙(팁이 1m 가까이 치솟는 현상) 억제
   // → 전환 시 스틱이 인접 드럼을 스치는 문제 해소 (실측 검증)
+  //
+  // 스윙 계산은 j7Strike(접촉각 보정으로 이동했을 수 있음)가 아니라
+  // nominalJ7(속도·스타일로만 정해지는 원래 값)을 기준으로 한다 — 그래야
+  // 접촉각 보정 폭(contactDelta)이 얼마든 raise↔strike 스윙 크기는 항상
+  // 그대로다. contactDelta는 strike·raise·rebound 전부에 똑같이 더해서
+  // "타격점 자체가 이동"한 효과만 내고 스윙에는 영향을 주지 않는다.
   if (phase === 'raise' || phase === 'rebound') {
     const baseRaw  = ({ raise: -0.86, rebound: -0.54 })[phase] * styleScale - stickJ7Offset;
     const j7Phase  = s === 'L' ? baseRaw : -baseRaw;
@@ -534,7 +600,9 @@ function computeStrikePose(drum, phase, vel = 'medium') {
       ? clamp(vs.raiseZ, 0.55, 1.35)
       : clamp(vs.rebZ,   0.50, 1.30);
     const cockScale = 0.8 * velScale;
-    pose[`${s}7`] = j7Strike + (j7Phase - j7Strike) * cockScale;
+    const nominal  = nominalJ7 ?? j7Strike;
+    const delta    = contactDelta ?? 0;
+    pose[`${s}7`] = nominal + (j7Phase - nominal) * cockScale + delta;
   }
 
   return pose;
@@ -661,6 +729,32 @@ function buildKeyframes() {
           if (k.endsWith('4')) v = clamp(v + 0.45, 0.10, 1.70);
           peak[k] = v;
         });
+
+        // 중심선 안전 여유: 피크(팔꿈치를 굽혀 드럼 사이를 넘어가는 구간)에서
+        // 팁이 몸 중심선(Y=0)에 너무 가까워지면 반대팔과 부딪힐 수 있다
+        // (실측: 양팔이 동시에 피크를 지나며 5~6cm까지 근접). 정밀 타격점이
+        // 아니라 통과 지점이므로 위치 오차는 문제없어, J3(가장 큰 레버리지)를
+        // 살짝 움직여 자기 팔 쪽으로 밀어낸다. 방향은 하드코딩하지 않고
+        // 매번 작게 찔러봐서(probe) 실제로 안전 방향인 쪽으로만 이동한다.
+        const MIN_PEAK_Y = 0.12;
+        const wantSign   = arm === 'L' ? 1 : -1;
+        const j3Key      = `${arm}3`;
+        const [j3Lo, j3Hi] = _IK_LIMITS[j3Key] ?? [-PI, PI];
+        let peakFK = _pureFKStick(peak, arm);
+        if (peakFK.tip.y * wantSign < MIN_PEAK_Y) {
+          const probeStep = 0.02;
+          const probeV = clamp(peak[j3Key] + probeStep, j3Lo, j3Hi);
+          const probeFK = _pureFKStick({ ...peak, [j3Key]: probeV }, arm);
+          const dir = Math.sign((probeFK.tip.y - peakFK.tip.y) * wantSign) || 1;
+          for (let iter = 0; iter < 40; iter++) {
+            const nextV = clamp(peak[j3Key] + dir * probeStep, j3Lo, j3Hi);
+            if (nextV === peak[j3Key]) break;   // 관절 한계 도달
+            peak[j3Key] = nextV;
+            peakFK = _pureFKStick(peak, arm);
+            if (peakFK.tip.y * wantSign >= MIN_PEAK_Y) break;
+          }
+        }
+
         addPose(poseMap, peakT, peak, sideKeys);
 
         // 피크 이후 다음 타격 직전까지 남는 시간 안에서 raise(B)를 한 번 더 찍는다.
@@ -3048,6 +3142,5 @@ if (timelineEvents.length) {
   document.getElementById('scrubber').max = _playDur;
 }
 setStatus('드럼 키트 로드됨 — 타임라인 클릭으로 배치 · 뷰포트 드래그로 위치 이동');
-
 
 
