@@ -470,6 +470,36 @@ function _solveStickStrike(drum, vel) {
   const raiseJ7Phase = (s === 'L' ? -0.86 : 0.86) * styleScale;
   const raiseJ7 = j7 + (raiseJ7Phase - j7) * 0.8;
 
+  // raise↔strike는 J1~J6이 고정된 채 J7만 도는 단일 힌지 운동이라 스틱 끝은
+  // 필연적으로 원호를 그린다. 양 끝점(raise·strike)만 수직으로 이어져 있어도
+  // 그 "사이" 호가 옆으로 부풀 수 있고, 실측 결과 그 부푼 지점이 인접한
+  // 심벌을 스치는 원인이었다(양 끝점만 보는 검사로는 못 잡음). 스윙 도중
+  // 여러 지점을 샘플링해 strike 지점을 지나는 수직선에서 얼마나 벗어나는지
+  // (수평 편차)를 측정해 채점에 반영한다 — 사후 키프레임 삽입이 아니라
+  // 애초에 호 전체가 곧은 자세를 고르는 방식.
+  function arcMaxHorizDev(pose, raiseJ7v, strikeJ7v, strikeTip) {
+    let maxDev = 0;
+    for (let i = 1; i < 8; i++) {
+      const j7v = raiseJ7v + (strikeJ7v - raiseJ7v) * (i / 8);
+      const tip = _pureFKStick({ ...pose, [`${s}7`]: j7v }, s).tip;
+      const dev = Math.hypot(tip.x - strikeTip.x, tip.y - strikeTip.y);
+      if (dev > maxDev) maxDev = dev;
+    }
+    return maxDev;
+  }
+  function poseScore(pose, raiseJ7v, strikeJ7v, withContact) {
+    const strikeTip = _pureFKStick(pose, s).tip;
+    const raiseTip  = _pureFKStick({ ...pose, [`${s}7`]: raiseJ7v }, s).tip;
+    const swing = strikeTip.clone().sub(raiseTip);
+    const swingLen = swing.length();
+    const verticality = swingLen > 1e-4 ? (-swing.z / swingLen) : -1;
+    const maxDev = arcMaxHorizDev(pose, raiseJ7v, strikeJ7v, strikeTip);
+    const straightness = clamp(1 - maxDev / 0.08, -1, 1);
+    if (!withContact) return verticality * 0.5 + straightness * 0.5;
+    const contact = -_pureFKStick(pose, s).dir.dot(headNormal);
+    return contact * 0.6 + verticality * 0.1 + straightness * 0.3;
+  }
+
   let overallBest = null, overallScore = -Infinity;
   outer_seed:
   for (const j1Seed of J1_SEEDS) {
@@ -497,21 +527,16 @@ function _solveStickStrike(drum, vel) {
       }
       if (bestErr >= 0.015) continue;   // 이 시드는 수렴 실패 → 제외
 
-      // raise→strike 스윙 벡터의 수직성 평가 (같은 J1~J6, J7만 raise↔strike)
-      const raiseTip  = _pureFKStick({ ...best, [`${s}7`]: raiseJ7 }, s).tip;
-      const strikeTip = _pureFKStick(best, s).tip;
-      const swing = strikeTip.clone().sub(raiseTip);
-      const swingLen = swing.length();
-      const verticality = swingLen > 1e-4 ? (-swing.z / swingLen) : -1;   // 1=완전 수직 하강
-      if (verticality > overallScore) { overallScore = verticality; overallBest = best; overallBest._err = bestErr; }
-      if (overallScore > 0.95) break outer_seed;   // 충분히 수직 — 더 찾을 필요 없음(속도)
+      const score = poseScore(best, raiseJ7, j7, false);
+      if (score > overallScore) { overallScore = score; overallBest = best; overallBest._err = bestErr; }
+      if (overallScore > 0.9) break outer_seed;   // 충분히 좋음 — 더 찾을 필요 없음(속도)
     }
   }
   // ── 접촉각 보정 ────────────────────────────────────────────────
-  // 위에서 찾은 자세(overallBest)는 위치·수직성만 기준으로 골랐기 때문에,
-  // 헤드가 기울어진 드럼(탐류 15° 등)에서는 스틱이 헤드에 거의 평행하게
-  // (스치듯) 닿을 수 있다. 이미 찾은 자연스러운 자세에서 "웜스타트"로 J7을
-  // 소폭(최대 ±0.6)만 바꿔 다시 수렴시켜, 접촉각이 실제로 개선될 때만
+  // 위에서 찾은 자세(overallBest)는 위치·수직성·직진성만 기준으로 골랐기
+  // 때문에, 헤드가 기울어진 드럼(탐류 15° 등)에서는 스틱이 헤드에 거의
+  // 평행하게(스치듯) 닿을 수 있다. 이미 찾은 자연스러운 자세에서 "웜스타트"로
+  // J7을 소폭(최대 ±0.6)만 바꿔 다시 수렴시켜, 접촉각이 실제로 개선될 때만
   // 채택한다 — 큰 배율로 J7을 바꾸면 raise/rebound 스윙이 함께 커져
   // "손목이 과하게 꺾이는" 부작용이 생기므로 이번엔 작은 폭만 시도한다.
   // (raise/rebound에도 이 델타를 그대로 더해서 스윙 폭 자체는 안 변한다 —
@@ -519,9 +544,8 @@ function _solveStickStrike(drum, vel) {
   let contactDelta = 0;
   let finalPose = overallBest;
   if (!isCymbal && overallBest) {
-    const baseDir     = _pureFKStick(overallBest, s).dir;
-    const baseContact = -baseDir.dot(headNormal);
-    let bestDeltaScore = baseContact * 0.7 + overallScore * 0.3;
+    const baseContact = -_pureFKStick(overallBest, s).dir.dot(headNormal);
+    let bestDeltaScore = poseScore(overallBest, raiseJ7, j7, true);
     if (baseContact < 0.5) {   // 이미 충분히 수직으로 닿으면 손대지 않음
       const DELTA_CANDIDATES = [-0.3, -0.6, 0.3, 0.6];
       for (const d of DELTA_CANDIDATES) {
@@ -542,15 +566,7 @@ function _solveStickStrike(drum, vel) {
         }
         if (candErr >= 0.015) continue;   // 웜스타트로도 수렴 실패 → 제외
 
-        const candStrikeTip = _pureFKStick(cand, s).tip;
-        const candRaiseTip  = _pureFKStick({ ...cand, [`${s}7`]: raiseJ7 + d }, s).tip;
-        const candSwing     = candStrikeTip.clone().sub(candRaiseTip);
-        const candSwingLen  = candSwing.length();
-        const candVert      = candSwingLen > 1e-4 ? (-candSwing.z / candSwingLen) : -1;
-        const candDir       = _pureFKStick(cand, s).dir;
-        const candContact   = -candDir.dot(headNormal);
-        const candScore     = candContact * 0.7 + candVert * 0.3;
-
+        const candScore = poseScore(cand, raiseJ7 + d, j7Try, true);
         if (candScore > bestDeltaScore) {
           bestDeltaScore = candScore; contactDelta = d; finalPose = cand;
         }
