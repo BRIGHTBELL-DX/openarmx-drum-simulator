@@ -404,7 +404,12 @@ function _solveStickStrike(drum, vel) {
   const j7Raw = 0.18 * vs.j7Strike * styleScale;
   const j7    = s === 'L' ? j7Raw : -j7Raw;
 
-  const key = [drum.id, vel,
+  // 캐시 키에는 IK 해에 영향을 주는 모든 입력을 포함해야 한다. id·pos 외에도
+  // arm(어느 팔 조인트를 푸는지)·type(style/styleScale/isCymbal/한계)·tilt(헤드
+  // 법선→접촉각 보정)가 결과를 바꾸므로 함께 넣는다. 이렇게 하면 드럼 종류·팔을
+  // 바꿔도 키가 달라져 자동으로 새로 풀리므로 별도 무효화가 필요 없다.
+  const effTilt = drum.tiltDeg ?? DRUM_TYPES[drum.type]?.tilt ?? 0;
+  const key = [drum.id, drum.arm, drum.type, vel, effTilt,
                drum.pos.x.toFixed(3), drum.pos.y.toFixed(3), drum.pos.z.toFixed(3)].join('|');
   const hit = _strikeSolveCache.get(key);
   if (hit) return hit;
@@ -1883,6 +1888,14 @@ document.getElementById('scrubber').addEventListener('input', function () {
   else _audioPlayOff = t;
 });
 
+// 정지/일시정지 상태에서 편집(강도 변경·스트로크 튜닝 등) 직후 현재 위치의
+// 포즈를 즉시 다시 그린다. 재생 중엔 animate() 루프가 매 프레임 갱신하므로
+// 호출되지 않는다. 미리보기 애니메이션 중엔 animate()와 동일하게 덮어쓰기 방지.
+function renderFrame(t) {
+  if (window._drumPreviewActive) return;
+  updateFK(interpolateAngles(t, _playKFs));
+}
+
 function _updatePlayhead(t) {
   const ph = document.getElementById('tl-playhead');
   if (!ph || !_playDur) return;
@@ -3068,7 +3081,12 @@ window.applyPattern = function () {
   if (timelineEvents.length) playAnim();
 };
 
-document.getElementById('bpm-inp').addEventListener('change', () => updateTLInfo());
+document.getElementById('bpm-inp').addEventListener('change', () => {
+  // 박자·마디 핸들러와 동일하게 전역 bpm을 즉시 커밋 — "적용" 없이 BPM만 바꿔도
+  // 재생·WAV·YAML이 올바른 템포를 쓰도록(이전엔 라벨만 바뀌고 bpm은 그대로였음)
+  bpm = parseInt(document.getElementById('bpm-inp').value) || 120;
+  updateTLInfo(); saveSettings();
+});
 
 // 스트로크 튜닝 슬라이더 공통 rebuild
 function _rebuildStroke() {
