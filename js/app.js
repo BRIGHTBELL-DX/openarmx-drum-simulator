@@ -45,26 +45,29 @@ const VEL_GLOW = {
 // 그대로 두면 팔 도달범위를 벗어나(크래쉬는 IK가 아예 수렴 못 해 한계를
 // 무시하는 해석적 추정치로 폴백 — 실제 애니메이션에서 팔이 안 맞는 자세로
 // 보이는 버그로 나타남) Z만 낮춰 재조정했다(실측 검증: 크래쉬 팁 오차
-// 46.7cm→2.6mm로 정상화). 스네어·스몰 탐·미들 탐·플로어 탐은 이 제한에서도
-// 원래 위치로 문제없이 통과해 그대로 둔다.
+// 46.7cm→2.6mm로 정상화). 스네어·스몰 탐·미들 탐·플로어 탐은 원래 위치로도
+// 도달은 문제없었지만, J3·J6이 과하게 꺾이는(스네어 J6=-1.42, 플로어 탐
+// J6=+1.35) 부자연스러운 자세였다 — X를 조금 더 밀어(스네어·플로어 탐
+// +0.13~0.14m, 스몰 탐·미들 탐은 원래도 멀어서 +0.015m만) J6을 거의 0으로
+// 완화했다(실측 검증: 스네어 J6 -1.42→0.09, 플로어 탐 J6 +1.35→-0.08).
 let drumKit = [
   // ─ L팔 ─────────────────────────────────────────────────────────
   { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.635, y: 0.406, z:0.20} },
   { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.783, y: 0.318, z:0.28} },
-  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.514, y: 0.14,  z:0.28} },
-  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.714, y: 0.104, z:0.38} },
+  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.65,  y: 0.14,  z:0.28} },
+  { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.73,  y: 0.104, z:0.38} },
   // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
   { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.63, y: 0.00, z:0.12} },
   // ─ R팔 ─────────────────────────────────────────────────────────
-  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.715, y:-0.138, z:0.38} },
-  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.52,  y:-0.16,  z:0.26} },
+  { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.73,  y:-0.138, z:0.38} },
+  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.65,  y:-0.16,  z:0.26} },
   { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.705, y:-0.406, z:0.32} },
 ];
 let nextDrumId = 8;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v14';
+const _DK_STORE = 'openarmx_drum_kit_v15';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
@@ -3204,4 +3207,3 @@ if (timelineEvents.length) {
   document.getElementById('scrubber').max = _playDur;
 }
 setStatus('드럼 키트 로드됨 — 타임라인 클릭으로 배치 · 뷰포트 드래그로 위치 이동');
-
