@@ -115,7 +115,7 @@ function _loadDrumPresets() {
     { name: '템플릿 1', positions: t1 },
     { name: '템플릿 2', positions: {
         d0:{x:0.64, y:0.41,  z:0.40}, d1:{x:0.77, y:0.31,  z:0.50},
-        d2:{x:0.66, y:0.19,  z:0.28}, d3:{x:0.76, y:0.30,  z:0.50},
+        d2:{x:0.66, y:0.19,  z:0.28}, d3:{x:0.76, y:0.11,  z:0.50},
         d4:{x:0.63, y:0.00,  z:0.12},
         d5:{x:0.77, y:-0.11, z:0.50}, d6:{x:0.66, y:-0.22, z:0.26},
         d7:{x:0.72, y:-0.40, z:0.50},
@@ -1056,6 +1056,7 @@ window.exportAudio = async function () {
   try {
     const SR   = 44100;
     const ctx  = new OfflineAudioContext(2, Math.ceil(totalDur * SR), SR);
+    const bus  = _makeDrumBus(ctx);
     const bd   = 60 / bpm;
     const iOff = _getAudioTimeOffset(); // 인트로 오프셋
 
@@ -1066,7 +1067,7 @@ window.exportAudio = async function () {
       const hitT = (evt.beat - 1) * bd + iOff;
       if (hitT < 0 || hitT >= totalDur) return;
       const fn = _drumSounds[drum.type] || _drumSounds.tom_m;
-      fn(hitT, ctx);
+      fn(hitT, ctx, undefined, bus);
     });
 
     // ── 배경 음악 믹스 (로드된 경우) ──────────────────────────
@@ -1398,55 +1399,192 @@ function updateJointHud(angles) {
 // ═══════════════════════════════════════════════════════════════
 //  드럼 사운드 합성 (Web Audio — 외부 파일 없이 합성음 사용)
 // ═══════════════════════════════════════════════════════════════
-let _drumAudioCtx = null;
-let _drumSoundOn  = true;
+let _drumAudioCtx  = null;
+let _drumMasterBus = null;
+let _drumSoundOn   = true;
 
 function _getDrumCtx() {
-  if (!_drumAudioCtx) _drumAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!_drumAudioCtx) {
+    _drumAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    _drumMasterBus = _makeDrumBus(_drumAudioCtx);
+  }
   if (_drumAudioCtx.state === 'suspended') _drumAudioCtx.resume();
   return _drumAudioCtx;
 }
-
-const _drumSounds = {
-  // 킥·플로어탐: 사인파 피치 스윕
-  kick(t, c, g=0.9)  { _synthPitch(c, t, 120, 28, 0.35, g); },
-  tom_f(t, c, g=0.8) { _synthPitch(c, t, 90,  35, 0.30, g); },
-  // 스네어: 노이즈 + 짧은 저음
-  snare(t, c, g=0.7) {
-    _synthNoise(c, t, 'bandpass', 1400, 0.8, 0.14, g);
-    _synthPitch(c, t, 200, 100, 0.08, g * 0.5);
-  },
-  // 탐: 피치 스윕 (주파수만 다름)
-  tom_h(t, c, g=0.7) { _synthPitch(c, t, 260, 110, 0.22, g); },
-  tom_m(t, c, g=0.7) { _synthPitch(c, t, 170,  80, 0.25, g); },
-  // 하이햇: 고역 노이즈
-  hihat(t, c, g=0.45){ _synthNoise(c, t, 'highpass', 8000, 1.2, 0.06, g); },
-  // 크래시·라이드: 긴 노이즈
-  crash(t, c, g=0.5) { _synthNoise(c, t, 'bandpass', 5500, 0.4, 0.70, g); },
-  ride(t, c, g=0.38) { _synthNoise(c, t, 'bandpass', 6500, 0.6, 0.38, g); },
-};
-
-function _synthPitch(c, t, f0, f1, dur, gain) {
-  const osc = c.createOscillator(), g = c.createGain();
-  osc.connect(g); g.connect(c.destination);
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(f0, t);
-  osc.frequency.exponentialRampToValueAtTime(f1, t + dur);
-  g.gain.setValueAtTime(gain, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  osc.start(t); osc.stop(t + dur + 0.01);
+// 여러 파셜/노이즈 레이어가 겹쳐도 뭉개지지 않도록 컴프레서를 하나 거쳐
+// destination으로 보낸다. 오프라인(WAV 내보내기) 컨텍스트는 매번 새로
+// 만들어지므로 그때그때 별도로 하나 만들어 쓴다(_drumSounds 쪽은 dest를
+// 인자로 받아 양쪽 다 대응).
+function _makeDrumBus(c) {
+  const comp = c.createDynamicsCompressor();
+  // 임계값을 높이고(덜 자주 눌림) release를 짧게 해서, 라이드처럼 길게
+  // 우는 소리 직후에 오는 스네어 등이 눌려서 작게 들리는 문제를 줄인다.
+  comp.threshold.value = -10; comp.knee.value = 6;
+  comp.ratio.value = 3; comp.attack.value = 0.002; comp.release.value = 0.06;
+  comp.connect(c.destination);
+  return comp;
 }
-function _synthNoise(c, t, filterType, freq, Q, dur, gain) {
+
+// ── 저수준 합성 유틸 ──────────────────────────────────────────
+// 실제 어쿠스틱 드럼은 (1) 스틱이 헤드에 부딪히는 순간의 짧은 클릭
+// 트랜지언트, (2) 헤드/셸이 진동하는 여러 개의 비조화(inharmonic) 파셜,
+// (3) 스네어 와이어 등의 노이즈 성분이 겹쳐서 소리를 만든다. 기존엔
+// 오실레이터 1개(피치 스윕)나 필터 노이즈 1개만 써서 "전자음" 느낌이
+// 강했다 — 아래 유틸로 이 세 요소를 조합해 좀 더 어쿠스틱하게 만든다.
+
+// 스틱 임팩트 클릭 — 아주 짧은 광대역 노이즈
+function _synthClick(c, dest, t, gain, dur = 0.006) {
+  const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = c.createBufferSource(), hp = c.createBiquadFilter(), g = c.createGain();
+  src.buffer = buf; src.connect(hp); hp.connect(g); g.connect(dest);
+  hp.type = 'highpass'; hp.frequency.value = 2500;
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+  src.start(t); src.stop(t + dur + 0.005);
+}
+// 드럼 헤드/셸의 진동 — 여러 사인 파셜을 서로 다른 배음비·감쇠로 겹친다.
+// partials: [{ratio, decay, level, drop}] — ratio는 f0 대비 배수(비조화),
+// drop이 있으면 그 파셜도 짧게 피치가 떨어진다(때림 직후의 "보잉" 느낌).
+function _synthPartials(c, dest, t, f0, dur, gain, partials) {
+  partials.forEach(p => {
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.connect(g); g.connect(dest);
+    osc.type = 'sine';
+    const freq = f0 * p.ratio;
+    if (p.drop) {
+      osc.frequency.setValueAtTime(freq * p.drop, t);
+      osc.frequency.exponentialRampToValueAtTime(freq, t + dur * 0.6);
+    } else {
+      osc.frequency.setValueAtTime(freq, t);
+    }
+    const pd = dur * (p.decay ?? 1);
+    g.gain.setValueAtTime(gain * p.level, t);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + pd);
+    osc.start(t); osc.stop(t + pd + 0.01);
+  });
+}
+// 필터링된 노이즈 레이어(심벌/스네어 노이즈 성분) — dest를 받아 라이브/
+// 오프라인 컨텍스트 양쪽에서 재사용 가능
+function _synthNoiseLayer(c, dest, t, filterType, freq, Q, dur, gain) {
   const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate);
   const d   = buf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
-  src.buffer = buf; src.connect(f); f.connect(g); g.connect(c.destination);
+  src.buffer = buf; src.connect(f); f.connect(g); g.connect(dest);
   f.type = filterType; f.frequency.value = freq; f.Q.value = Q;
   g.gain.setValueAtTime(gain, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
   src.start(t); src.stop(t + dur + 0.01);
 }
+
+const _drumSounds = {
+  // 킥: 임팩트 클릭 + 서브 피치 스윕(빠른 초반 하강으로 펀치감) + 배음 2개
+  // (저역 서브 + 셸이 울리는 중역 바디감 추가)
+  kick(t, c, g = 0.9, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.35, 0.004);
+    _synthPartials(c, d, t, 62, 0.30, g, [
+      { ratio: 1,    level: 1.0,  decay: 1.0,  drop: 2.4 },
+      { ratio: 2.4,  level: 0.18, decay: 0.35 },
+      { ratio: 3.6,  level: 0.08, decay: 0.2 },
+    ]);
+  },
+  // 플로어 탐: 킥보다 높은 톤 + 배음 3개(비조화 비율)로 "통 울림" 표현
+  tom_f(t, c, g = 0.8, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.25, 0.005);
+    _synthPartials(c, d, t, 95, 0.32, g, [
+      { ratio: 1,    level: 1.0,  decay: 1.0,  drop: 1.7 },
+      { ratio: 1.63, level: 0.35, decay: 0.55 },
+      { ratio: 2.31, level: 0.16, decay: 0.35 },
+      { ratio: 3.12, level: 0.07, decay: 0.22 },
+    ]);
+  },
+  // 스네어: 배음 3개 + 긴 피치 글라이드 조합이 꽹과리/종처럼 들렸다 —
+  // 실제 스네어는 셸 톤이 아주 짧게 "툭"하고 끝나고 와이어 노이즈가
+  // 주도해야 한다. 배음을 기본음 하나로 줄이고 아주 짧게(45ms), 피치
+  // 글라이드도 살짝만 남기고, 노이즈 쪽 비중과 밝기를 더 키웠다.
+  snare(t, c, g = 1.0, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.6, 0.005);
+    _synthPartials(c, d, t, 180, 0.045, g * 0.3, [
+      { ratio: 1, level: 1.0, decay: 1.0, drop: 1.15 },
+    ]);
+    _synthNoiseLayer(c, d, t, 'bandpass', 2600, 0.7, 0.11, g);
+    _synthNoiseLayer(c, d, t, 'bandpass', 1200, 1.0, 0.16, g * 0.55);
+    _synthNoiseLayer(c, d, t, 'highpass', 6000, 0.6, 0.06, g * 0.45);
+  },
+  // 스몰/미들 탐: 배음 3~4개로 통 울림, 스몰이 미들보다 배음 비율이 촘촘
+  tom_h(t, c, g = 0.7, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.22, 0.004);
+    _synthPartials(c, d, t, 200, 0.24, g, [
+      { ratio: 1,    level: 1.0,  decay: 1.0,  drop: 1.5 },
+      { ratio: 1.72, level: 0.3,  decay: 0.5 },
+      { ratio: 2.4,  level: 0.14, decay: 0.3 },
+      { ratio: 3.24, level: 0.06, decay: 0.18 },
+    ]);
+  },
+  tom_m(t, c, g = 0.7, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.22, 0.005);
+    _synthPartials(c, d, t, 135, 0.27, g, [
+      { ratio: 1,    level: 1.0,  decay: 1.0,  drop: 1.6 },
+      { ratio: 1.66, level: 0.32, decay: 0.5 },
+      { ratio: 2.35, level: 0.14, decay: 0.3 },
+      { ratio: 3.18, level: 0.06, decay: 0.18 },
+    ]);
+  },
+  // 하이햇(클로즈드): 겹친 고역 노이즈 밴드 여러 개 + 아주 짧은 감쇠로
+  // "치익" 하는 타격감. 금속성 느낌을 위해 좁은 대역 몇 개를 겹치고,
+  // 아주 짧고 조용한 비조화 파셜 2개를 얹어 순수 노이즈보다 금속감을 더한다.
+  hihat(t, c, g = 0.45, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.3, 0.003);
+    _synthNoiseLayer(c, d, t, 'highpass', 9000,  0.9, 0.05, g * 0.8);
+    _synthNoiseLayer(c, d, t, 'bandpass', 11500, 3.0, 0.045, g * 0.4);
+    _synthNoiseLayer(c, d, t, 'bandpass', 7200,  4.0, 0.04, g * 0.3);
+    _synthPartials(c, d, t, 3100, 0.045, g * 0.12, [
+      { ratio: 1,    level: 1.0, decay: 1.0 },
+      { ratio: 2.76, level: 0.6, decay: 0.7 },
+    ]);
+  },
+  // 크래시: 넓게 퍼지는 비조화 노이즈 레이어(저역 바디+고역 쉬머) + 은은한
+  // 금속 파셜 몇 개로 "챙~" 하는 잔향 표현
+  crash(t, c, g = 0.5, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.3, 0.006);
+    _synthNoiseLayer(c, d, t, 'bandpass', 3200, 0.5, 0.75, g * 0.55);
+    _synthNoiseLayer(c, d, t, 'bandpass', 6000, 0.4, 0.85, g * 0.5);
+    _synthNoiseLayer(c, d, t, 'highpass', 8500, 0.8, 0.65, g * 0.35);
+    _synthPartials(c, d, t, 420, 0.6, g * 0.25, [
+      { ratio: 1,    level: 1.0, decay: 1.0 },
+      { ratio: 1.41, level: 0.6, decay: 0.9 },
+      { ratio: 2.03, level: 0.4, decay: 0.7 },
+    ]);
+  },
+  // 라이드: 이전엔 배음이 3개뿐이고 정수비에 가까워 "종/깡통"처럼 들렸다.
+  // 실제 심벌은 배음이 훨씬 촘촘하고 비조화적이며, 노이즈(쉼머)가 톤보다
+  // 우세해야 "금속판" 느낌이 난다 — 배음을 6개로 늘리고 비조화 비율로,
+  // 레벨은 낮춰서 노이즈 워시 위에 살짝 얹히는 "핑"으로만 남긴다.
+  ride(t, c, g = 0.2, dest) {
+    const d = dest || c.destination;
+    _synthClick(c, d, t, g * 0.2, 0.004);
+    _synthNoiseLayer(c, d, t, 'highpass', 6500, 0.7, 0.4,  g * 0.55);
+    _synthNoiseLayer(c, d, t, 'bandpass', 9200, 0.5, 0.32, g * 0.38);
+    _synthNoiseLayer(c, d, t, 'bandpass', 4200, 0.6, 0.22, g * 0.22);
+    _synthPartials(c, d, t, 780, 0.4, g * 0.22, [
+      { ratio: 1,    level: 1.0,  decay: 1.0 },
+      { ratio: 1.83, level: 0.55, decay: 0.85 },
+      { ratio: 2.62, level: 0.4,  decay: 0.7 },
+      { ratio: 3.44, level: 0.3,  decay: 0.55 },
+      { ratio: 4.28, level: 0.2,  decay: 0.4 },
+      { ratio: 5.11, level: 0.13, decay: 0.3 },
+    ]);
+  },
+};
 
 window.toggleDrumSound = function () {
   _drumSoundOn = !_drumSoundOn;
@@ -1459,7 +1597,7 @@ function playDrumSound(drumType) {
   try {
     const c  = _getDrumCtx();
     const fn = _drumSounds[drumType] || _drumSounds.tom_m;
-    fn(c.currentTime + 0.005, c);
+    fn(c.currentTime + 0.005, c, undefined, _drumMasterBus);
   } catch(e) {}
 }
 
