@@ -10,10 +10,10 @@ const PI = Math.PI;
 // tilt: 헤드 기울기 기본값(°) — 로봇(연주자) 방향으로 기울어짐. drum.tiltDeg로 개별 오버라이드 가능
 const DRUM_TYPES = {
   hihat:  { name:'하이 햇',      color:'#00ddff', preDur:0.06, rebDur:0.08, style:'wrist', tilt: 4 }, // 시안
-  snare:  { name:'스네어',       color:'#ffffff', preDur:0.08, rebDur:0.10, style:'full',  tilt: 3 }, // 흰색
+  snare:  { name:'스네어',       color:'#ffffff', preDur:0.08, rebDur:0.10, style:'full',  tilt:15 }, // 흰색
   tom_h:  { name:'스몰 탐',      color:'#ff3366', preDur:0.09, rebDur:0.11, style:'full',  tilt:15 }, // 핑크레드
   tom_m:  { name:'미들 탐',      color:'#ff8800', preDur:0.09, rebDur:0.11, style:'full',  tilt:15 }, // 주황
-  tom_f:  { name:'플로어 탐',    color:'#bb44ff', preDur:0.10, rebDur:0.13, style:'full',  tilt: 4 }, // 보라
+  tom_f:  { name:'플로어 탐',    color:'#bb44ff', preDur:0.10, rebDur:0.13, style:'full',  tilt:15 }, // 보라
   crash:  { name:'크래쉬 심벌',  color:'#ffdd00', preDur:0.10, rebDur:0.16, style:'big',   tilt:12 }, // 골드
   ride:   { name:'라이드 심벌',  color:'#44ff99', preDur:0.09, rebDur:0.13, style:'full',  tilt:10 }, // 민트
   kick:   { name:'킥 (베이스 드럼)', color:'#884422', preDur:0, rebDur:0,   style:'none',  tilt: 0 }, // 브라운
