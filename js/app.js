@@ -89,6 +89,89 @@ window.resetDrumKit = function () {
 };
 
 // ═══════════════════════════════════════════════════════════════
+//  드럼 위치 프리셋(템플릿) — 실물 로봇 좌표 세팅을 이름으로 저장·전환
+// ═══════════════════════════════════════════════════════════════
+const _PRESET_STORE = 'openarmx_drum_presets_v1';
+
+function _snapshotPositions() {
+  const out = {};
+  drumKit.forEach(d => { out[d.id] = { x: d.pos.x, y: d.pos.y, z: d.pos.z }; });
+  return out;
+}
+
+function _loadDrumPresets() {
+  try {
+    const raw = localStorage.getItem(_PRESET_STORE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+  } catch (e) {}
+  // 최초 실행 시 기본 2개 시드 — 템플릿 1은 배포 기본값, 템플릿 2는
+  // 사용자가 실물 테스트용으로 확정한 좌표
+  const t1 = {};
+  DEFAULT_DRUM_KIT.forEach(d => { t1[d.id] = { ...d.pos }; });
+  return [
+    { name: '템플릿 1', positions: t1 },
+    { name: '템플릿 2', positions: {
+        d0:{x:0.64, y:0.41,  z:0.40}, d1:{x:0.77, y:0.31,  z:0.50},
+        d2:{x:0.66, y:0.19,  z:0.28}, d3:{x:0.76, y:0.30,  z:0.50},
+        d4:{x:0.63, y:0.00,  z:0.12},
+        d5:{x:0.77, y:-0.11, z:0.50}, d6:{x:0.66, y:-0.22, z:0.26},
+        d7:{x:0.72, y:-0.40, z:0.50},
+      } },
+  ];
+}
+let drumPresets = _loadDrumPresets();
+function _saveDrumPresets() {
+  try { localStorage.setItem(_PRESET_STORE, JSON.stringify(drumPresets)); } catch (e) {}
+}
+function renderPresetDropdown() {
+  const sel = document.getElementById('preset-sel');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— 템플릿 선택 —</option>' +
+    drumPresets.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+  if (drumPresets.some(p => p.name === cur)) sel.value = cur;
+}
+window.applyDrumPreset = function (name) {
+  if (!name) return;
+  const preset = drumPresets.find(p => p.name === name);
+  if (!preset) return;
+  drumKit.forEach(d => {
+    const p = preset.positions[d.id];
+    if (p) Object.assign(d.pos, p);
+  });
+  saveDrumKit();
+  renderDrumList(); rebuildDrumSpheres(); renderTimeline();
+  _playKFs = buildFinalKeyframes(); _playDur = _playKFs.totalTime;
+  setStatus(`"${name}" 템플릿 적용됨`);
+};
+window.saveDrumPreset = function () {
+  const sel = document.getElementById('preset-sel');
+  const name = prompt('저장할 템플릿 이름(기존 이름을 입력하면 덮어씁니다):', sel.value || '');
+  if (!name) return;
+  const positions = _snapshotPositions();
+  const idx = drumPresets.findIndex(p => p.name === name);
+  if (idx >= 0) drumPresets[idx] = { name, positions };
+  else drumPresets.push({ name, positions });
+  _saveDrumPresets();
+  renderPresetDropdown();
+  sel.value = name;
+  setStatus(`"${name}" 템플릿으로 저장됨`);
+};
+window.deleteDrumPreset = function () {
+  const sel = document.getElementById('preset-sel');
+  const name = sel.value;
+  if (!name) { setStatus('삭제할 템플릿을 먼저 선택하세요'); return; }
+  if (!confirm(`"${name}" 템플릿을 삭제할까요?`)) return;
+  drumPresets = drumPresets.filter(p => p.name !== name);
+  _saveDrumPresets();
+  renderPresetDropdown();
+  setStatus(`"${name}" 템플릿 삭제됨`);
+};
+
+// ═══════════════════════════════════════════════════════════════
 //  설정·타임라인 영속 (localStorage) — 강력 새로고침에도 유지
 // ═══════════════════════════════════════════════════════════════
 const _SETTINGS_STORE = 'openarmx_settings_v1';
@@ -3191,6 +3274,7 @@ window.addEventListener('resize', () => renderTimeline());
 });
 updateFK({ ...NEUTRAL });
 renderDrumList();
+renderPresetDropdown();
 renderSkinPresets();
 rebuildDrumSpheres();
 loadSettings();   // BPM·박자·마디·체크박스·스트로크 오프셋 복원

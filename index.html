@@ -39,6 +39,11 @@
       🥁 드럼 키트 구성
       <button class="btn-sm" onclick="addDrum()">+ 추가</button>
     </div>
+    <div class="preset-row">
+      <select id="preset-sel" onchange="applyDrumPreset(this.value)"></select>
+      <button class="btn-sm" onclick="saveDrumPreset()" title="현재 드럼 위치를 이 이름으로 저장(같은 이름 있으면 덮어씀)">💾 저장</button>
+      <button class="btn-sm" onclick="deleteDrumPreset()" title="선택한 템플릿 삭제">🗑</button>
+    </div>
     <div class="panel-hint">
       Y 양수 = 왼팔 방향 / Y 음수 = 오른팔 방향<br>
       Z = 높이 (로봇 어깨 ≈ 0.698m)
@@ -197,7 +202,7 @@
   }
 }
 </script>
-<script src="js/intro_outro_presets.js?v=68"></script>
-<script type="module" src="js/app.js?v=68"></script>
+<script src="js/intro_outro_presets.js?v=73"></script>
+<script type="module" src="js/app.js?v=73"></script>
 </body>
 </html>

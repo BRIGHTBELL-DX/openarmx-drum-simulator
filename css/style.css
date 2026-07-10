@@ -199,6 +199,24 @@ body {
   transition: background .15s;
 }
 .btn-sm:hover { background: #243a70; }
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.preset-row select {
+  flex: 1;
+  min-width: 0;
+  background: #111126;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
 #drum-list {
   overflow-y: auto;
   overflow-x: hidden;
