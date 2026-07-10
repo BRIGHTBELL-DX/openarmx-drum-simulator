@@ -42,24 +42,28 @@ const VEL_GLOW = {
 // J5(안쪽 말림 금지) 제한(아래 _IK_LIMITS 참고) 하에서 실측 검증 결과
 // 7드럼 전부 팁 오차 7mm 이내·수직성 0.93+·호 직진성 전부 양수(0.36~0.73)로
 // 이번 세션 중 가장 고르게 좋은 결과였다.
+// 스네어·플로어 탐은 X를 +0.06m 추가 조정(0.59→0.65) — 원래 위치에서도
+// 도달은 됐지만 J3·J6이 크게(스네어 J3=-0.43·J6=-0.94, 플로어 탐
+// J3=+0.45·J6=+0.93) 꺾여야 했다. X를 늘리자 두 관절 다 거의 0으로
+// 완화되면서 직진성도 오히려 소폭 개선됐다(실측 검증).
 let drumKit = [
   // ─ L팔 ─────────────────────────────────────────────────────────
   { id:'d0', name:'하이 햇',     type:'hihat', arm:'L', pos:{x:0.64, y: 0.41,  z:0.40} },
   { id:'d1', name:'크래쉬 심벌', type:'crash', arm:'L', pos:{x:0.77, y: 0.31,  z:0.50} },
-  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.59, y: 0.14,  z:0.28} },
+  { id:'d2', name:'스네어',      type:'snare', arm:'L', pos:{x:0.65, y: 0.14,  z:0.28} },
   { id:'d3', name:'스몰 탐',     type:'tom_h', arm:'L', pos:{x:0.76, y: 0.11,  z:0.50} },
   // ─ 킥 (표시 전용, 팔 미사용) ─────────────────────────────────
   { id:'d4', name:'킥',          type:'kick',  arm:'kick', pos:{x:0.63, y: 0.00, z:0.12} },
   // ─ R팔 ─────────────────────────────────────────────────────────
   { id:'d5', name:'미들 탐',     type:'tom_m', arm:'R', pos:{x:0.77, y:-0.13,  z:0.50} },
-  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.59, y:-0.16,  z:0.26} },
+  { id:'d6', name:'플로어 탐',   type:'tom_f', arm:'R', pos:{x:0.65, y:-0.16,  z:0.26} },
   { id:'d7', name:'라이드 심벌', type:'ride',  arm:'R', pos:{x:0.72, y:-0.40,  z:0.50} },
 ];
 let nextDrumId = 8;
 
 // 기본값 스냅샷 (초기화 버튼용)
 const DEFAULT_DRUM_KIT = drumKit.map(d => ({...d, pos: {...d.pos}}));
-const _DK_STORE = 'openarmx_drum_kit_v16';
+const _DK_STORE = 'openarmx_drum_kit_v17';
 
 function saveDrumKit() {
   try { localStorage.setItem(_DK_STORE, JSON.stringify(drumKit)); } catch(e) {}
