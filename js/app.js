@@ -100,18 +100,11 @@ function _snapshotPositions() {
 }
 
 function _loadDrumPresets() {
-  try {
-    const raw = localStorage.getItem(_PRESET_STORE);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    }
-  } catch (e) {}
-  // 최초 실행 시 기본 2개 시드 — 템플릿 1은 배포 기본값, 템플릿 2는
-  // 사용자가 실물 테스트용으로 확정한 좌표
+  // 배포 기본 시드 — 템플릿 1은 배포 기본값, 템플릿 2·3은 사용자가
+  // 실물 테스트용으로 확정한 좌표
   const t1 = {};
   DEFAULT_DRUM_KIT.forEach(d => { t1[d.id] = { ...d.pos }; });
-  return [
+  const seeds = [
     { name: '템플릿 1', positions: t1 },
     { name: '템플릿 2', positions: {
         d0:{x:0.64, y:0.41,  z:0.40}, d1:{x:0.77, y:0.31,  z:0.50},
@@ -128,6 +121,20 @@ function _loadDrumPresets() {
         d7:{x:0.72, y:-0.40, z:0.50},
       } },
   ];
+  try {
+    const raw = localStorage.getItem(_PRESET_STORE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        // 기존 로컬 저장값은 유지하되, 이름이 겹치지 않는 새 배포 시드만 추가 병합
+        // — 예전 방문 때 저장된 localStorage가 있으면 새로 추가된 템플릿이
+        // 누락되는 문제를 방지
+        const existingNames = new Set(parsed.map(p => p.name));
+        return parsed.concat(seeds.filter(s => !existingNames.has(s.name)));
+      }
+    }
+  } catch (e) {}
+  return seeds;
 }
 let drumPresets = _loadDrumPresets();
 function _saveDrumPresets() {
