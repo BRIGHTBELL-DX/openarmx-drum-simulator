@@ -2358,6 +2358,7 @@ window.analyzeDrumAudio = function (input) {
       const result = await _runDrumAnalysis(buf, _audioCtx);
       result.fileName = file.name;
       result.audioBuffer = buf;
+      result.sourceLabel = '오디오 분석';
       _daResult = result;
       _renderDrumAnalysisResult(result);
     } catch (err) {
@@ -2695,14 +2696,205 @@ async function _runDrumAnalysis(buf, ctx) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  MIDI 채보 파일 → 타임라인 자동 생성
+//  드럼 종류가 노트 번호로 이미 확정돼 있어(General MIDI 드럼 맵), 오디오
+//  분석의 온셋 검출·대역 분류·마디 반복 보정이 전부 필요 없다 — 노트 번호를
+//  타입으로 매핑하고 벨로시티를 그대로 중요도로 쓰면 되므로 훨씬 정확하다.
+//  3단계 밀도 생성(_buildDensityTiers)과 팔별 충돌 회피 변환
+//  (_hitsToTimelineEvents)은 오디오 분석 경로와 동일한 함수를 그대로 재사용.
+// ═══════════════════════════════════════════════════════════════
+// 기본 매핑은 README의 GM 노트 맵(킥36·스네어38·하이햇42·플로어탐43·미들탐47·
+// 크래시49·스몰탐50·라이드51) 그대로. 실제 파일 검증 중 README엔 없던 오픈
+// 하이햇(46)이 37건 섞여 있어 전부 "hihat"으로 놓치고 있었음을 발견해 추가.
+// 그 외 GM 표준에서 흔히 쓰이는 동의어 노트(킥35, 스네어40, 페달하이햇44,
+// 크래시52/55/57, 라이드53/59)도 다른 곡 MIDI를 대비해 함께 매핑해 둠.
+const GM_DRUM_NOTE_MAP = {
+  35: 'kick',  36: 'kick',
+  38: 'snare', 40: 'snare',
+  42: 'hihat', 44: 'hihat', 46: 'hihat',
+  43: 'tom_f',
+  47: 'tom_m',
+  50: 'tom_h',
+  49: 'crash', 52: 'crash', 55: 'crash', 57: 'crash',
+  51: 'ride',  53: 'ride',  59: 'ride',
+};
+
+// Standard MIDI File(SMF) 파서 — 헤더/트랙 청크를 읽어 노트온 이벤트와
+// 템포(마이크로초/4분음표) 변화를 시간(초) 기준으로 변환해 돌려준다.
+function _parseMidiFile(buf) {
+  const data = new DataView(buf);
+  let pos = 0;
+  function u8()  { const v = data.getUint8(pos);  pos += 1; return v; }
+  function u16() { const v = data.getUint16(pos); pos += 2; return v; }
+  function u32() { const v = data.getUint32(pos); pos += 4; return v; }
+  function chunkType() { let s = ''; for (let i = 0; i < 4; i++) s += String.fromCharCode(u8()); return s; }
+  function readVLQ() {
+    let value = 0, byte;
+    do { byte = u8(); value = (value << 7) | (byte & 0x7f); } while (byte & 0x80);
+    return value;
+  }
+
+  if (chunkType() !== 'MThd') throw new Error('MIDI 헤더(MThd)를 찾을 수 없습니다 — 올바른 .mid 파일인지 확인하세요');
+  const headerLen = u32();
+  const headerEnd = pos + headerLen;
+  u16(); // format — 사용하지 않음(멀티트랙이어도 트랙별로 순회하므로 무관)
+  const ntrks = u16();
+  const division = u16();
+  if (division & 0x8000) throw new Error('SMPTE 타임코드 기반 MIDI는 지원하지 않습니다');
+  const ticksPerQuarter = division;
+  pos = headerEnd;
+
+  const tempoMap = [];   // { tick, usPerQuarter }
+  const noteEvents = []; // { tick, channel, note, velocity }
+
+  for (let t = 0; t < ntrks; t++) {
+    if (chunkType() !== 'MTrk') throw new Error(`${t}번째 트랙에서 MTrk 청크를 찾지 못했습니다`);
+    const chunkLen = u32();
+    const chunkEnd = pos + chunkLen;
+    let tick = 0, runningStatus = 0;
+    while (pos < chunkEnd) {
+      tick += readVLQ();
+      let statusByte = u8();
+      if (statusByte < 0x80) { pos -= 1; statusByte = runningStatus; }
+      else if (statusByte < 0xF0) runningStatus = statusByte; // 채널 메시지만 러닝 스테이터스 갱신
+
+      if (statusByte === 0xFF) {
+        const metaType = u8();
+        const len = readVLQ();
+        const metaEnd = pos + len;
+        if (metaType === 0x51 && len === 3) {
+          tempoMap.push({ tick, usPerQuarter: (u8() << 16) | (u8() << 8) | u8() });
+        }
+        pos = metaEnd;
+      } else if (statusByte === 0xF0 || statusByte === 0xF7) {
+        pos += readVLQ();
+      } else {
+        const type = statusByte & 0xF0;
+        const channel = statusByte & 0x0F;
+        if (type === 0xC0 || type === 0xD0) {
+          u8();
+        } else {
+          const d1 = u8(), d2 = u8();
+          if (type === 0x90 && d2 > 0) noteEvents.push({ tick, channel, note: d1, velocity: d2 });
+        }
+      }
+    }
+    pos = chunkEnd;
+  }
+
+  if (!tempoMap.length) tempoMap.push({ tick: 0, usPerQuarter: 500000 }); // 기본 120BPM
+  tempoMap.sort((a, b) => a.tick - b.tick);
+
+  function tickToSec(targetTick) {
+    let sec = 0, lastTick = 0, usPerQuarter = tempoMap[0].usPerQuarter;
+    for (const tp of tempoMap) {
+      if (tp.tick > targetTick) break;
+      sec += (tp.tick - lastTick) * usPerQuarter / ticksPerQuarter / 1e6;
+      lastTick = tp.tick; usPerQuarter = tp.usPerQuarter;
+    }
+    sec += (targetTick - lastTick) * usPerQuarter / ticksPerQuarter / 1e6;
+    return sec;
+  }
+
+  const hits = noteEvents
+    .map(ev => ({ tSec: tickToSec(ev.tick), note: ev.note, velocity: ev.velocity, channel: ev.channel }))
+    .sort((a, b) => a.tSec - b.tSec);
+
+  return { hits, tempoMap };
+}
+
+// MIDI 노트 이벤트 → 오디오 분석 경로와 동일한 {type,beat,score,vel} 형태로 변환
+// (벨로시티가 곧 실제 세기이므로 오디오 쪽처럼 대역 신호로 음량을 추정할 필요가 없음)
+function _midiHitsToScoredHits(midiHits, bpm) {
+  const beatDur = 60 / bpm;
+  return midiHits.map(h => {
+    const type = GM_DRUM_NOTE_MAP[h.note];
+    if (!type) return null;
+    const beat = 1 + h.tSec / beatDur;
+    const loud = h.velocity / 127;
+    const fracBeat = ((beat - 1) % 1 + 1) % 1;
+    const onDownbeat = fracBeat < 0.05 || fracBeat > 0.95;
+    const onHalfbeat = Math.abs(fracBeat - 0.5) < 0.05;
+    let score = loud;
+    if (onDownbeat) score += 0.5; else if (onHalfbeat) score += 0.2;
+    if (type === 'kick' || type === 'snare') score += 0.3;
+    return { type, beat, score, vel: loud > 0.7 ? 'hard' : (loud > 0.35 ? 'medium' : 'soft') };
+  }).filter(Boolean);
+}
+
+async function _runMidiAnalysis(arrayBuffer) {
+  const { hits: midiHits, tempoMap } = _parseMidiFile(arrayBuffer);
+  const filtered = midiHits.filter(h => GM_DRUM_NOTE_MAP[h.note] !== undefined);
+  if (!filtered.length) throw new Error('GM 드럼 노트(킥36·스네어38·하이햇42 등)를 찾지 못했습니다');
+
+  const bpm = 60000000 / (tempoMap[0]?.usPerQuarter || 500000);
+  const beatsPerBarLocal = beatsPerBar;
+
+  const hits = _midiHitsToScoredHits(filtered, bpm);
+  const densityTiers = _buildDensityTiers(hits);
+  const tiers = {
+    sparse: _hitsToTimelineEvents(densityTiers.sparse, bpm),
+    medium: _hitsToTimelineEvents(densityTiers.medium, bpm),
+    exact:  _hitsToTimelineEvents(densityTiers.exact, bpm),
+  };
+  const tierCounts = { sparse: tiers.sparse.length, medium: tiers.medium.length, exact: tiers.exact.length };
+
+  let lastTSec = 0;
+  filtered.forEach(h => { if (h.tSec > lastTSec) lastTSec = h.tSec; });
+  const totalBeats = lastTSec / (60 / bpm) + beatsPerBarLocal;
+  const totalBarsNeeded = Math.min(400, Math.max(1, Math.ceil(totalBeats / beatsPerBarLocal)));
+  const truncated = Math.ceil(totalBeats / beatsPerBarLocal) > 400;
+
+  return {
+    bpm: Math.round(bpm * 100) / 100,
+    beatsPerBar: beatsPerBarLocal,
+    totalBars: totalBarsNeeded,
+    truncated,
+    durationSec: lastTSec,
+    onsetCount: filtered.length,
+    tierCounts,
+    tiers,
+    sourceLabel: 'MIDI 채보',
+    bpmLabel: 'BPM(파일 지정)',
+  };
+}
+
+window.analyzeMidiFile = function (input) {
+  const file = input.files[0];
+  if (!file) return;
+  const nameEl = document.getElementById('drum-midi-name');
+  if (nameEl) nameEl.textContent = file.name;
+
+  document.getElementById('drum-analysis-modal').style.display = 'flex';
+  document.getElementById('drum-analysis-content').innerHTML = '<div class="da-progress">MIDI 분석 중...</div>';
+
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const result = await _runMidiAnalysis(e.target.result);
+      result.fileName = file.name;
+      _daResult = result;
+      _renderDrumAnalysisResult(result);
+    } catch (err) {
+      document.getElementById('drum-analysis-content').innerHTML =
+        `<div class="val-err">MIDI 분석 실패: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+};
+
 function _renderDrumAnalysisResult(result) {
+  const titleEl = document.getElementById('drum-analysis-title');
+  if (titleEl) titleEl.textContent = `🥁 ${result.sourceLabel || '드럼 분석'} 결과`;
   const el = document.getElementById('drum-analysis-content');
   const durMin = Math.floor(result.durationSec / 60), durSec = Math.round(result.durationSec % 60);
   const warn = result.truncated ? `<br><span class="val-warn">⚠ 곡이 길어 최대 400마디로 잘렸습니다</span>` : '';
+  const bpmLabel = result.bpmLabel || '추정 BPM';
   el.innerHTML = `
     <div class="da-summary">
       <b>${result.fileName}</b><br>
-      길이 ${durMin}:${String(durSec).padStart(2, '0')} · 추정 BPM <b>${result.bpm}</b> · 검출 타격 ${result.onsetCount}개 · 필요 ${result.totalBars}마디(현재 ${result.beatsPerBar}/4박자 기준)${warn}
+      길이 ${durMin}:${String(durSec).padStart(2, '0')} · ${bpmLabel} <b>${result.bpm}</b> · 검출 타격 ${result.onsetCount}개 · 필요 ${result.totalBars}마디(현재 ${result.beatsPerBar}/4박자 기준)${warn}
     </div>
     <div class="da-tier" onclick="applyDrumAnalysisTier('sparse')">
       <div class="da-tier-name">① 스파스 — 가장 단순</div>
@@ -2733,14 +2925,18 @@ window.applyDrumAnalysisTier = function (tierName) {
 
   timelineEvents = events.map(e => ({ ...e }));
 
-  // 분석에 쓴 오디오를 재생 트랙으로도 연결 — 재생 시 실제 곡과 함께 정확도 확인 가능
-  _audioBuf = _daResult.audioBuffer;
-  const audioNameEl = document.getElementById('audio-name');
-  if (audioNameEl) audioNameEl.textContent = _daResult.fileName + ' (분석됨)';
+  // 분석(오디오 분석 경로)에 쓴 오디오가 있으면 재생 트랙으로도 연결 — 재생 시 실제
+  // 곡과 함께 정확도 확인 가능. MIDI 채보 경로는 오디오 파일이 없으므로 건드리지
+  // 않음(이미 "🎵 음악 로드"로 불러온 배경음악이 있다면 그대로 유지됨).
+  if (_daResult.audioBuffer) {
+    _audioBuf = _daResult.audioBuffer;
+    const audioNameEl = document.getElementById('audio-name');
+    if (audioNameEl) audioNameEl.textContent = _daResult.fileName + ' (분석됨)';
+  }
 
   closeDrumAnalysis();
   applyPattern();
-  setStatus(`드럼 분석 적용 — ${tierName} 티어 · ${timelineEvents.length}개 타격 · ${_daResult.bpm}BPM`);
+  setStatus(`${_daResult.sourceLabel || '드럼 분석'} 적용 — ${tierName} 티어 · ${timelineEvents.length}개 타격 · ${_daResult.bpm}BPM`);
 };
 
 // ═══════════════════════════════════════════════════════════════

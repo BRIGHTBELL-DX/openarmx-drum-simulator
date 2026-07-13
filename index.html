@@ -32,6 +32,11 @@
       <input type="file" id="drum-audio-file" accept="audio/*" style="display:none" onchange="analyzeDrumAudio(this)">
     </label>
     <span id="drum-audio-name">파일 없음</span>
+    <label class="audio-label" title="드럼 MIDI 채보 파일(.mid)을 불러와 정확한 타격 타임라인을 생성합니다 — 오디오 분석보다 정확">
+      🎼 MIDI 채보
+      <input type="file" id="drum-midi-file" accept=".mid,.midi,audio/midi" style="display:none" onchange="analyzeMidiFile(this)">
+    </label>
+    <span id="drum-midi-name">파일 없음</span>
   </div>
 </div>
 
@@ -203,7 +208,7 @@
 <div id="drum-analysis-modal" style="display:none">
   <div id="drum-analysis-box">
     <div class="modal-header">
-      🥁 드럼 오디오 분석 결과
+      <span id="drum-analysis-title">🥁 드럼 분석 결과</span>
       <button onclick="closeDrumAnalysis()">✕</button>
     </div>
     <div id="drum-analysis-content"></div>
@@ -218,7 +223,7 @@
   }
 }
 </script>
-<script src="js/intro_outro_presets.js?v=86"></script>
-<script type="module" src="js/app.js?v=86"></script>
+<script src="js/intro_outro_presets.js?v=87"></script>
+<script type="module" src="js/app.js?v=87"></script>
 </body>
 </html>
