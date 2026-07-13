@@ -275,6 +275,17 @@ body {
   line-height: 1;
 }
 .drum-del-btn:hover { color: #c44; }
+.drum-autogen-chk {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #7890b0;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.drum-autogen-chk input { cursor: pointer; }
 .drum-type-row {
   display: flex;
   gap: 5px;

@@ -3508,8 +3508,12 @@ window.autoGeneratePattern = function () {
   const coin = p => Math.random() < (p ?? 0.5);
 
   // ── 현재 드럼킷 전체 배열 (팔별) ─────────────────────────────────
-  const Ld = drumKit.filter(d => d.arm === 'L' && d.type !== 'kick');
-  const Rd = drumKit.filter(d => d.arm === 'R' && d.type !== 'kick');
+  // autoGen === false로 체크 해제된 드럼은 자동 생성 후보에서 제외(실물
+  // 테스트 시 연결된 드럼만 쓰고 싶을 때). 한쪽 팔에 활성 드럼이 하나도
+  // 없으면 아래 로직들이 전부 null/빈 배열로 자연스럽게 건너뛰어, 그 팔은
+  // 이번 생성에서 전혀 등장하지 않고(초기 자세 유지) 다른 팔만 생성된다.
+  const Ld = drumKit.filter(d => d.arm === 'L' && d.type !== 'kick' && d.autoGen !== false);
+  const Rd = drumKit.filter(d => d.arm === 'R' && d.type !== 'kick' && d.autoGen !== false);
   if (!Ld.length && !Rd.length) return;
 
   // 순환 인덱스: 마디·박자 조합으로 드럼 골고루 사용
@@ -3753,8 +3757,11 @@ window.autoGeneratePattern = function () {
   // 스타일이 그 자리에 다른 드럼(하이햇 등)을 이미 놓았어도 스네어로 교체하고,
   // 비어 있으면 새로 추가한다 — 다른 팔(예: 라이드)의 백비트 히트는 그대로 둔다.
   function forceSnareBackbeat(bs) {
-    const snareDrum = drumKit.find(d => d.type === 'snare');
-    if (!snareDrum) return;
+    // Ld에서 찾은 Lsnare를 써야 자동 생성에서 체크 해제(autoGen:false)된 스네어를
+    // 존중한다 — 예전엔 drumKit 전체에서 바로 찾아 비활성화해도 강제로 끼워
+    // 넣는 버그가 있었음(실물 테스트로 일부 드럼만 쓰고 싶을 때 문제가 됨).
+    if (!Lsnare) return;
+    const snareDrum = drumKit.find(d => d.id === Lsnare);
     backOff.forEach(b => {
       const beat = parseFloat((bs + b).toFixed(3));
       const idx = timelineEvents.findIndex(e => {
@@ -3858,6 +3865,11 @@ function renderDrumList() {
     <div class="drum-color-dot" style="background:${typeInfo.color};color:${typeInfo.color}"></div>
     <input class="drum-name-inp" value="${drum.name}"
       onchange="updateDrumProp('${drum.id}','name',this.value)">
+    ${isKick ? '' : `
+    <label class="drum-autogen-chk" title="체크 해제 시 🎲 자동 생성에서 이 드럼을 사용하지 않음(실물 테스트로 일부 드럼만 연결했을 때 유용)">
+      <input type="checkbox" ${drum.autoGen === false ? '' : 'checked'}
+        onchange="updateDrumProp('${drum.id}','autoGen',this.checked)"> 자동
+    </label>`}
     <button class="drum-del-btn" onclick="deleteDrum('${drum.id}')" title="삭제">✕</button>
   </div>
   <div class="drum-vel-preview">
