@@ -117,8 +117,15 @@ function _loadDrumPresets() {
         d0:{x:0.56, y:0.54,  z:0.40}, d1:{x:0.77, y:0.32,  z:0.50},
         d2:{x:0.59, y:0.42,  z:0.18}, d3:{x:0.76, y:0.11,  z:0.45},
         d4:{x:0.63, y:0.00,  z:0.12},
-        d5:{x:0.78, y:-0.14, z:0.45}, d6:{x:0.55, y:-0.46, z:0.18},
+        d5:{x:0.76, y:-0.11, z:0.45}, d6:{x:0.55, y:-0.46, z:0.18},
         d7:{x:0.72, y:-0.40, z:0.50},
+      } },
+    { name: '템플릿 4', positions: {
+        d0:{x:0.61, y:0.60,  z:0.40}, d1:{x:0.76, y:0.37,  z:0.50},
+        d2:{x:0.51, y:0.41,  z:0.18}, d3:{x:0.76, y:0.16,  z:0.45},
+        d4:{x:0.63, y:0.00,  z:0.12},
+        d5:{x:0.76, y:-0.15, z:0.45}, d6:{x:0.51, y:-0.41, z:0.18},
+        d7:{x:0.80, y:-0.41, z:0.50},
       } },
   ];
   try {
@@ -126,11 +133,14 @@ function _loadDrumPresets() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length) {
-        // 기존 로컬 저장값은 유지하되, 이름이 겹치지 않는 새 배포 시드만 추가 병합
-        // — 예전 방문 때 저장된 localStorage가 있으면 새로 추가된 템플릿이
-        // 누락되는 문제를 방지
-        const existingNames = new Set(parsed.map(p => p.name));
-        return parsed.concat(seeds.filter(s => !existingNames.has(s.name)));
+        // "템플릿 N"(코드로 관리하는 공식 시드)은 항상 최신 코드 값으로 동기화하고,
+        // 그 외 사용자가 직접 다른 이름으로 저장한 커스텀 프리셋만 그대로 보존.
+        // 예전엔 localStorage에 값이 있으면 시드를 무시해서, 코드에서 템플릿 값을
+        // 수정해도 이미 그 템플릿을 저장해본 적 있는 브라우저에는 반영되지
+        // 않는 문제가 있었음(신규 템플릿 추가는 물론 기존 템플릿 값 변경도 누락됨).
+        const seedNames = new Set(seeds.map(s => s.name));
+        const customOnly = parsed.filter(p => !seedNames.has(p.name));
+        return seeds.concat(customOnly);
       }
     }
   } catch (e) {}
