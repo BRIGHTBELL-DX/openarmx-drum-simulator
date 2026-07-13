@@ -80,6 +80,15 @@ function loadDrumKit() {
   } catch(e) {}
 }
 window.resetDrumKit = function () {
+  // 템플릿 선택 드롭다운과 정렬 — 선택된 템플릿이 있으면 그 템플릿 위치로
+  // 초기화하고, 선택된 게 없을 때만 진짜 기본값(템플릿 1)으로 되돌린다.
+  const sel = document.getElementById('preset-sel');
+  const selectedName = sel ? sel.value : '';
+  if (selectedName && drumPresets.some(p => p.name === selectedName)) {
+    applyDrumPreset(selectedName);
+    setStatus(`"${selectedName}" 템플릿 위치로 초기화됨`);
+    return;
+  }
   drumKit = DEFAULT_DRUM_KIT.map(d => ({...d, pos: {...d.pos}}));
   nextDrumId = DEFAULT_DRUM_KIT.length;
   saveDrumKit();
@@ -194,6 +203,28 @@ window.deleteDrumPreset = function () {
   renderPresetDropdown();
   setStatus(`"${name}" 템플릿 삭제됨`);
 };
+
+// 템플릿이 선택된 상태에서 드럼 위치를 손으로 바꾸면, 더 이상 그 템플릿과
+// 일치하지 않으므로 드롭다운을 "선택 안 됨"으로 되돌려 저장을 유도한다
+// (선택된 템플릿 이름이 그대로 남아있으면 실제로는 다른 위치인데도 마치
+// 그 템플릿 그대로인 것처럼 보이는 문제가 있었음).
+function _checkTemplateDirty() {
+  const sel = document.getElementById('preset-sel');
+  if (!sel || !sel.value) return;
+  const preset = drumPresets.find(p => p.name === sel.value);
+  if (!preset) return;
+  const EPS = 0.005;
+  const matches = drumKit.every(d => {
+    const p = preset.positions[d.id];
+    if (!p) return true;
+    return Math.abs(d.pos.x - p.x) < EPS && Math.abs(d.pos.y - p.y) < EPS && Math.abs(d.pos.z - p.z) < EPS;
+  });
+  if (!matches) {
+    const prevName = sel.value;
+    sel.value = '';
+    setStatus(`위치가 "${prevName}"에서 변경됨 — 이 위치를 저장하려면 💾 저장을 눌러주세요`);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  설정·타임라인 영속 (localStorage) — 강력 새로고침에도 유지
@@ -2801,6 +2832,7 @@ renderer.domElement.addEventListener('mouseup', () => {
     renderer.domElement.style.cursor = '';
     // 드래그 후 reach badge 갱신 + 키프레임 재빌드
     saveDrumKit();
+    _checkTemplateDirty();
     renderDrumList();
     _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
@@ -3723,6 +3755,7 @@ window.updateDrumPos = function (id, axis, val) {
     if (sliders[axisIdx]) sliders[axisIdx].value  = val.toFixed(2);
   }
   saveDrumKit();
+  _checkTemplateDirty();
 };
 
 window.addDrum = function () {
