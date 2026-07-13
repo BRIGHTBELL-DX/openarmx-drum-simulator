@@ -656,6 +656,57 @@ body {
 .val-err  { color: #e04848; }
 .val-info { color: #6688aa; }
 
+/* ── 드럼 오디오 분석 모달 ── */
+#drum-analysis-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,10,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+#drum-analysis-box {
+  background: #0d0d22;
+  border: 1px solid #2a3060;
+  border-radius: 8px;
+  width: 480px;
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,30,0.8);
+}
+#drum-analysis-content {
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.da-summary {
+  background: #12122c;
+  border: 1px solid #232860;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  color: #aac0e0;
+}
+.da-summary b { color: #ccddff; }
+.da-tier {
+  background: #12122c;
+  border: 1px solid #232860;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.da-tier:hover { background: #1a1a44; border-color: #3a4590; }
+.da-tier-name { font-weight: 700; color: #ccddff; font-size: 13px; }
+.da-tier-desc { color: #7890b0; font-size: 11px; margin-top: 2px; }
+.da-tier-stat { color: #6ef; font-size: 11px; margin-top: 4px; }
+.da-progress { color: #e0a030; text-align: center; padding: 20px 0; }
+
 /* ── 오디오 버튼 ── */
 .audio-label {
   background: #1a1a40;

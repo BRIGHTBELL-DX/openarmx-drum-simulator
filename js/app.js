@@ -2293,6 +2293,416 @@ function _stopAudio() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  드럼 오디오 분석 → 타임라인 자동 생성
+//  (온셋 검출 → 템포 추정 → 대역 분류 → 마디 반복 보정 → 3단계 밀도 생성)
+//  "🎵 음악 로드"(배경 재생용)와는 완전히 별개 기능 — 여기선 오디오 자체를
+//  분석해 실제 타격 타임라인을 만든다.
+// ═══════════════════════════════════════════════════════════════
+let _daResult = null; // { bpm, beatsPerBar, totalBars, durationSec, onsetCount, tiers, fileName, audioBuffer }
+
+window.analyzeDrumAudio = function (input) {
+  const file = input.files[0];
+  if (!file) return;
+  const nameEl = document.getElementById('drum-audio-name');
+  if (nameEl) nameEl.textContent = file.name;
+
+  document.getElementById('drum-analysis-modal').style.display = 'flex';
+  document.getElementById('drum-analysis-content').innerHTML = '<div class="da-progress">분석 중... (곡 길이에 따라 몇 초~수십 초 걸릴 수 있습니다)</div>';
+
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      if (!_audioCtx) _audioCtx = new AudioContext();
+      const buf = await _audioCtx.decodeAudioData(e.target.result.slice(0));
+      const result = await _runDrumAnalysis(buf, _audioCtx);
+      result.fileName = file.name;
+      result.audioBuffer = buf;
+      _daResult = result;
+      _renderDrumAnalysisResult(result);
+    } catch (err) {
+      document.getElementById('drum-analysis-content').innerHTML =
+        `<div class="val-err">분석 실패: ${err.message}</div>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+window.closeDrumAnalysis = function () {
+  document.getElementById('drum-analysis-modal').style.display = 'none';
+};
+
+// ── RMS 엔벌로프 / 온셋(양의 반파 정류 미분) ────────────────────────
+function _rmsEnvelope(data, hop, numFrames) {
+  const e = new Float32Array(numFrames);
+  for (let f = 0; f < numFrames; f++) {
+    let sum = 0; const start = f * hop;
+    for (let i = 0; i < hop; i++) { const v = data[start + i] || 0; sum += v * v; }
+    e[f] = Math.sqrt(sum / hop);
+  }
+  return e;
+}
+function _halfWaveFlux(env) {
+  const flux = new Float32Array(env.length);
+  for (let i = 1; i < env.length; i++) { const d = env[i] - env[i - 1]; flux[i] = d > 0 ? d : 0; }
+  return flux;
+}
+// 적응형 임계값(±300ms 지역 평균+1.5*표준편차) + 최소 간격 60ms 피크 피킹
+function _pickOnsets(flux, frameSec) {
+  const n = flux.length;
+  const winFrames = Math.round(0.3 / frameSec);
+  const minSpacingFrames = Math.round(0.06 / frameSec);
+  const onsets = [];
+  for (let i = 2; i < n - 2; i++) {
+    const lo = Math.max(0, i - winFrames), hi = Math.min(n, i + winFrames);
+    let sum = 0, sumSq = 0; const cnt = hi - lo;
+    for (let k = lo; k < hi; k++) { sum += flux[k]; sumSq += flux[k] * flux[k]; }
+    const mean = sum / cnt, variance = sumSq / cnt - mean * mean, std = Math.sqrt(Math.max(0, variance));
+    const thresh = mean + 1.5 * std + 0.001;
+    if (flux[i] > thresh && flux[i] >= flux[i - 1] && flux[i] >= flux[i + 1] && flux[i] > flux[i - 2] && flux[i] > flux[i + 2]) onsets.push(i);
+  }
+  const filtered = [];
+  for (const idx of onsets) {
+    if (!filtered.length) { filtered.push(idx); continue; }
+    const last = filtered[filtered.length - 1];
+    if (idx - last < minSpacingFrames) { if (flux[idx] > flux[last]) filtered[filtered.length - 1] = idx; }
+    else filtered.push(idx);
+  }
+  return filtered;
+}
+
+// ── 템포 추정: flux 자기상관 + 그리드 정합도로 옥타브(절반/2배) 모호성 해소 ──
+function _estimateTempo(flux, frameSec, onsetTimes) {
+  const n = flux.length;
+  const minBPM = 60, maxBPM = 200;
+  const minLag = Math.round((60 / maxBPM) / frameSec);
+  const maxLag = Math.round((60 / minBPM) / frameSec);
+  const acf = new Float32Array(Math.max(1, maxLag - minLag + 1));
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let sum = 0;
+    for (let i = 0; i < n - lag; i++) sum += flux[i] * flux[i + lag];
+    acf[lag - minLag] = sum;
+  }
+  const peaks = [];
+  for (let i = 1; i < acf.length - 1; i++) {
+    if (acf[i] > acf[i - 1] && acf[i] > acf[i + 1]) {
+      const lag = i + minLag;
+      peaks.push({ bpm: 60 / (lag * frameSec), strength: acf[i] });
+    }
+  }
+  peaks.sort((a, b) => b.strength - a.strength);
+  if (!peaks.length || !onsetTimes.length) return 120;
+  const top = peaks.slice(0, 6);
+  function gridResidual(bpmCand) {
+    const sixteenth = 60 / bpmCand / 4;
+    let sumDev = 0;
+    for (const t of onsetTimes) { const rem = t % sixteenth; sumDev += Math.min(rem, sixteenth - rem) / sixteenth; }
+    return sumDev / onsetTimes.length;
+  }
+  let best = top[0], bestRes = gridResidual(top[0].bpm);
+  for (const p of top.slice(1)) {
+    const res = gridResidual(p.bpm);
+    if (res < bestRes - 0.005) { best = p; bestRes = res; } // 명확히 더 좋은 정합일 때만 교체(동률이면 자기상관 세기가 높은 후보 유지)
+  }
+  return best.bpm;
+}
+
+// ── 주파수 대역 분리(킥/스네어·탐 바디/스네어 크랙/하이햇·심벌) ──────────
+// 대역별 특성 주파수에 맞춰 엔벌로프 측정 윈도우 크기를 다르게 함(저역일수록
+// 윈도우가 짧으면 파형 1주기도 못 담아 노이즈처럼 흔들리는 문제가 실측으로
+// 확인됨 — 킥 16ms/미드 6ms/크랙 3ms/하이 2ms로 보정 후 분류 균형이 개선됨).
+async function _splitBands(ctx, monoBuf, sr) {
+  async function renderBand(setupFn) {
+    const oac = new OfflineAudioContext(1, monoBuf.length, sr);
+    const src = oac.createBufferSource(); src.buffer = monoBuf;
+    const outNode = setupFn(oac, src);
+    outNode.connect(oac.destination);
+    src.start();
+    const rendered = await oac.startRendering();
+    return rendered.getChannelData(0);
+  }
+  function makeBand(data, winMs) {
+    const w = Math.max(1, Math.round(sr * winMs / 1000));
+    const numF = Math.floor(data.length / w);
+    const e = new Float32Array(numF);
+    for (let f = 0; f < numF; f++) {
+      let sum = 0; const start = f * w;
+      for (let i = 0; i < w; i++) { const v = data[start + i] || 0; sum += v * v; }
+      e[f] = Math.sqrt(sum / w);
+    }
+    const fl = new Float32Array(numF);
+    let max = 0;
+    for (let i = 1; i < numF; i++) { const d = e[i] - e[i - 1]; fl[i] = d > 0 ? d : 0; if (fl[i] > max) max = fl[i]; }
+    return { flux: fl, w, max: max || 1 };
+  }
+
+  const kickData  = await renderBand((oac, src) => { const lp = oac.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 150;  lp.Q.value = 0.7; src.connect(lp); return lp; });
+  const midData   = await renderBand((oac, src) => { const bp = oac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 450;  bp.Q.value = 0.8; src.connect(bp); return bp; });
+  const crackData = await renderBand((oac, src) => { const bp = oac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3500; bp.Q.value = 0.7; src.connect(bp); return bp; });
+  const hiData    = await renderBand((oac, src) => { const hp = oac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6000; hp.Q.value = 0.7; src.connect(hp); return hp; });
+
+  return {
+    kick:  makeBand(kickData, 16),
+    mid:   makeBand(midData, 6),
+    crack: makeBand(crackData, 3),
+    hi:    makeBand(hiData, 2),
+  };
+}
+
+// ── 온셋별 대역 점수 샘플링 + 드럼 타입 분류 ─────────────────────────
+function _sampleBandAt(band, tSec, sr, radiusMs) {
+  const frameIdx = Math.round((tSec * sr) / band.w);
+  const radiusFrames = Math.max(1, Math.round(radiusMs / (band.w / sr * 1000)));
+  let best = 0;
+  for (let d = -radiusFrames; d <= radiusFrames; d++) {
+    const idx = frameIdx + d;
+    if (idx >= 0 && idx < band.flux.length) best = Math.max(best, band.flux[idx]);
+  }
+  return best / band.max;
+}
+// 4개 대역(킥/미드/크랙/하이) 점수만으로 7종 드럼 타입을 추정하는 v1 휴리스틱.
+// 킥·스네어·탐의 저역대가 실제로 겹쳐서 완벽한 분리는 어렵고, 하이햇/라이드
+// 구분은 현재 대역 설계로는 신호가 부족해 하이 우세 시 기본적으로 hihat으로
+// 처리한다(실측 검증 시 확인된 한계 — 추후 청음 튜닝 대상).
+function _classifyBandScores(k, m, c, h) {
+  // 크래시: 크랙+하이가 동시에 강하게 뜨는 경우 우선 처리(밝고 오래 울리는 심벌)
+  if (c > 0.45 && h > 0.45) return 'crash';
+  // 그 외엔 4개 대역 중 최댓값(argmax)으로 분류 — 실측 검증 시 임계값 캐스케이드보다
+  // argmax 방식이 킥으로 쏠리는 오분류가 훨씬 적었다(캐스케이드는 애매한 경우 전부
+  // 마지막 fallback인 킥으로 떨어지는 버그가 있었음).
+  const bands = [['kick', k], ['mid', m], ['crack', c], ['hi', h]];
+  bands.sort((a, b) => b[1] - a[1]);
+  const top = bands[0][0];
+  if (top === 'hi') return 'hihat';
+  if (top === 'crack') return 'snare';
+  if (top === 'kick') return 'kick';
+  // mid 우세 → 킥 성분이 섞인 정도로 탐(저음일수록 플로어탐) vs 스네어 구분
+  if (k > 0.25) {
+    if (k > 0.42) return 'tom_f';
+    if (k > 0.32) return 'tom_m';
+    return 'tom_h';
+  }
+  return 'snare';
+}
+function _classifyOnsets(onsetTimes, bands, sr) {
+  return onsetTimes.map(t => {
+    const k = _sampleBandAt(bands.kick, t, sr, 15);
+    const m = _sampleBandAt(bands.mid, t, sr, 10);
+    const c = _sampleBandAt(bands.crack, t, sr, 8);
+    const h = _sampleBandAt(bands.hi, t, sr, 8);
+    return { t, k, m, c, h, type: _classifyBandScores(k, m, c, h) };
+  });
+}
+
+// ── 마디 반복 기반 다수결 보정 ───────────────────────────────────────
+// 같은 마디-내 위치(1/16 그리드)에 반복적으로 나타나는 타격들을 모아, 압도적
+// 다수(65%+, 최소 4회 반복)가 동의하는 타입이 있을 때만 "확신도가 낮았던"
+// 개별 타격의 분류를 그 타입으로 교정한다.
+// 주의: 실측해보니 단순 과반(50%)만으로 전부 교체하면, 곡 전체에서 가장 흔한
+// 타입(예: 킥)이 우연히 여러 슬롯에서도 다수를 차지해 오히려 다양성 있는
+// 정확한 개별 분류까지 지워버리는 역효과가 나타났다(1184개 중 284개가 전부
+// 킥으로 획일화됨). 그래서 이미 확신도 높은(1위·2위 대역 점수 차이>0.15)
+// 개별 분류는 다수결과 달라도 건드리지 않고, 애매했던 것만 보정 대상으로 좁혔다.
+function _refineByRepetition(classified, estBpm, beatsPerBarLocal) {
+  const beatDur = 60 / estBpm;
+  const barDur = beatDur * beatsPerBarLocal;
+  const slotsPerBar = beatsPerBarLocal * 4; // 1/16 그리드
+  const buckets = new Map();
+  classified.forEach(hit => {
+    const posInBar = ((hit.t % barDur) + barDur) % barDur / barDur;
+    const bin = Math.round(posInBar * slotsPerBar) % slotsPerBar;
+    if (!buckets.has(bin)) buckets.set(bin, []);
+    buckets.get(bin).push(hit);
+  });
+  buckets.forEach(hits => {
+    if (hits.length < 4) return;
+    const tally = {};
+    hits.forEach(h => { tally[h.type] = (tally[h.type] || 0) + 1; });
+    let majType = null, majCount = 0;
+    Object.entries(tally).forEach(([type, count]) => { if (count > majCount) { majType = type; majCount = count; } });
+    if (majCount / hits.length < 0.65) return;
+    hits.forEach(h => {
+      if (h.type === majType) return;
+      const scores = [h.k, h.m, h.c, h.h].sort((a, b) => b - a);
+      if (scores[0] - scores[1] > 0.15) return; // 원분류 확신도가 높으면 유지
+      h.type = majType;
+    });
+  });
+}
+
+// ── 분류 결과 → 타격 리스트(마디/박자 좌표계) + 중요도 점수 ────────────
+function _classifiedToHits(classified, estBpm) {
+  const beatDur = 60 / estBpm;
+  return classified.map(h => {
+    const beat = 1 + h.t / beatDur;
+    const loud = Math.max(h.k, h.m, h.c, h.h);
+    const fracBeat = ((beat - 1) % 1 + 1) % 1;
+    const onDownbeat = fracBeat < 0.05 || fracBeat > 0.95;
+    const onHalfbeat = Math.abs(fracBeat - 0.5) < 0.05;
+    let score = loud;
+    if (onDownbeat) score += 0.5; else if (onHalfbeat) score += 0.2;
+    if (h.type === 'kick' || h.type === 'snare') score += 0.3;
+    return { type: h.type, beat, score, vel: loud > 0.7 ? 'hard' : (loud > 0.35 ? 'medium' : 'soft') };
+  });
+}
+
+// ── 3단계 밀도 타임라인 생성(스파스/미디엄/정확) ─────────────────────
+function _buildDensityTiers(hits) {
+  const exact = hits.slice().sort((a, b) => a.beat - b.beat);
+  const byScoreDesc = hits.slice().sort((a, b) => b.score - a.score);
+
+  const mediumCount = Math.max(1, Math.round(hits.length * 0.55));
+  const medium = byScoreDesc.slice(0, mediumCount).sort((a, b) => a.beat - b.beat);
+
+  // 스파스: 중요도 상위 후보 중, 정수 박(quarter-beat) 슬롯당 최대 1개만 채택
+  const sparseCount = Math.max(1, Math.round(hits.length * 0.22));
+  const seenSlots = new Set();
+  const sparse = [];
+  for (const h of byScoreDesc) {
+    const slot = Math.round(h.beat);
+    if (seenSlots.has(slot)) continue;
+    seenSlots.add(slot);
+    sparse.push(h);
+    if (sparse.length >= sparseCount) break;
+  }
+  sparse.sort((a, b) => a.beat - b.beat);
+
+  return { sparse, medium, exact };
+}
+
+// ── 타격 리스트 → timelineEvents({drumId,beat,vel}) 변환 ────────────
+// 팔(L/R/kick)별로 시간순 정렬 후, 물리적으로 너무 가까운(55ms 미만) 연속
+// 타격은 중요도가 높은 쪽만 남겨 실행 불가능한 타임라인이 생기지 않게 한다.
+function _hitsToTimelineEvents(hits, estBpm) {
+  const beatDur = 60 / estBpm;
+  const minGapBeats = 0.055 / beatDur;
+  const fallbackType = { tom_h:'snare', tom_m:'snare', tom_f:'snare', crash:'hihat', ride:'hihat', hihat:'ride', snare:'tom_h' };
+
+  const byArm = { L: [], R: [], kick: [] };
+  hits.forEach(h => {
+    let drum = drumKit.find(d => d.type === h.type);
+    if (!drum) drum = drumKit.find(d => d.type === fallbackType[h.type]) || drumKit.find(d => d.type !== 'kick');
+    if (!drum || !byArm[drum.arm]) return;
+    byArm[drum.arm].push({ drumId: drum.id, beat: h.beat, vel: h.vel, score: h.score });
+  });
+
+  const events = [];
+  ['L', 'R', 'kick'].forEach(arm => {
+    const list = byArm[arm].sort((a, b) => a.beat - b.beat);
+    let lastPushed = null;
+    list.forEach(ev => {
+      if (lastPushed && ev.beat - lastPushed.beat < minGapBeats) {
+        if (ev.score > lastPushed.score) { lastPushed.drumId = ev.drumId; lastPushed.beat = ev.beat; lastPushed.vel = ev.vel; lastPushed.score = ev.score; }
+        return;
+      }
+      const pushed = { drumId: ev.drumId, beat: ev.beat, vel: ev.vel, score: ev.score };
+      events.push(pushed);
+      lastPushed = pushed;
+    });
+  });
+  return events.map(({ drumId, beat, vel }) => ({ drumId, beat: parseFloat(beat.toFixed(3)), vel }));
+}
+
+// ── 분석 파이프라인 총괄 ─────────────────────────────────────────────
+async function _runDrumAnalysis(buf, ctx) {
+  const sr = buf.sampleRate;
+  const ch0 = buf.getChannelData(0);
+  const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : ch0;
+  const n = ch0.length;
+  const mono = new Float32Array(n);
+  for (let i = 0; i < n; i++) mono[i] = (ch0[i] + ch1[i]) * 0.5;
+
+  const hop = Math.round(sr * 0.005);
+  const numFrames = Math.floor(n / hop);
+  const frameSec = hop / sr;
+  const env = _rmsEnvelope(mono, hop, numFrames);
+  const flux = _halfWaveFlux(env);
+  const onsetFrames = _pickOnsets(flux, frameSec);
+  const onsetTimes = onsetFrames.map(i => i * frameSec);
+
+  const estBpm = _estimateTempo(flux, frameSec, onsetTimes);
+  const beatsPerBarLocal = beatsPerBar; // 현재 설정된 박자를 그대로 가정(자동 박자 감지는 미지원)
+
+  const monoBuf = ctx.createBuffer(1, mono.length, sr);
+  monoBuf.copyToChannel(mono, 0);
+  const bands = await _splitBands(ctx, monoBuf, sr);
+
+  const classified = _classifyOnsets(onsetTimes, bands, sr);
+  _refineByRepetition(classified, estBpm, beatsPerBarLocal);
+  const hits = _classifiedToHits(classified, estBpm);
+  const densityTiers = _buildDensityTiers(hits);
+  const tiers = {
+    sparse: _hitsToTimelineEvents(densityTiers.sparse, estBpm),
+    medium: _hitsToTimelineEvents(densityTiers.medium, estBpm),
+    exact:  _hitsToTimelineEvents(densityTiers.exact, estBpm),
+  };
+  // 스파스/미디엄/정확 각각 몇 개 타격인지 표시용으로 별도 보관(위 변환 후 개수와 동일)
+  const tierCounts = { sparse: tiers.sparse.length, medium: tiers.medium.length, exact: tiers.exact.length };
+
+  const totalBeats = buf.duration / (60 / estBpm);
+  const totalBarsNeeded = Math.min(400, Math.max(1, Math.ceil(totalBeats / beatsPerBarLocal)));
+  const truncated = Math.ceil(totalBeats / beatsPerBarLocal) > 400;
+
+  return {
+    bpm: Math.round(estBpm * 100) / 100,
+    beatsPerBar: beatsPerBarLocal,
+    totalBars: totalBarsNeeded,
+    truncated,
+    durationSec: buf.duration,
+    onsetCount: onsetTimes.length,
+    tierCounts,
+    tiers,
+  };
+}
+
+function _renderDrumAnalysisResult(result) {
+  const el = document.getElementById('drum-analysis-content');
+  const durMin = Math.floor(result.durationSec / 60), durSec = Math.round(result.durationSec % 60);
+  const warn = result.truncated ? `<br><span class="val-warn">⚠ 곡이 길어 최대 400마디로 잘렸습니다</span>` : '';
+  el.innerHTML = `
+    <div class="da-summary">
+      <b>${result.fileName}</b><br>
+      길이 ${durMin}:${String(durSec).padStart(2, '0')} · 추정 BPM <b>${result.bpm}</b> · 검출 타격 ${result.onsetCount}개 · 필요 ${result.totalBars}마디(현재 ${result.beatsPerBar}/4박자 기준)${warn}
+    </div>
+    <div class="da-tier" onclick="applyDrumAnalysisTier('sparse')">
+      <div class="da-tier-name">① 스파스 — 가장 단순</div>
+      <div class="da-tier-desc">중요도 상위 타격만, 박당 최대 1개 — 팔 이동 최소화</div>
+      <div class="da-tier-stat">${result.tierCounts.sparse}개 타격</div>
+    </div>
+    <div class="da-tier" onclick="applyDrumAnalysisTier('medium')">
+      <div class="da-tier-name">② 미디엄 — 중간</div>
+      <div class="da-tier-desc">주요 타격 위주로 곡을 따라감</div>
+      <div class="da-tier-stat">${result.tierCounts.medium}개 타격</div>
+    </div>
+    <div class="da-tier" onclick="applyDrumAnalysisTier('exact')">
+      <div class="da-tier-name">③ 정확 — 음악과 동일</div>
+      <div class="da-tier-desc">검출된 모든 타격을 그대로 반영</div>
+      <div class="da-tier-stat">${result.tierCounts.exact}개 타격</div>
+    </div>
+  `;
+}
+
+window.applyDrumAnalysisTier = function (tierName) {
+  if (!_daResult) return;
+  const events = _daResult.tiers[tierName];
+  if (!events) return;
+
+  document.getElementById('bpm-inp').value  = _daResult.bpm;
+  document.getElementById('meter-sel').value = String(_daResult.beatsPerBar);
+  document.getElementById('bars-inp').value = _daResult.totalBars;
+
+  timelineEvents = events.map(e => ({ ...e }));
+
+  // 분석에 쓴 오디오를 재생 트랙으로도 연결 — 재생 시 실제 곡과 함께 정확도 확인 가능
+  _audioBuf = _daResult.audioBuffer;
+  const audioNameEl = document.getElementById('audio-name');
+  if (audioNameEl) audioNameEl.textContent = _daResult.fileName + ' (분석됨)';
+
+  closeDrumAnalysis();
+  applyPattern();
+  setStatus(`드럼 분석 적용 — ${tierName} 티어 · ${timelineEvents.length}개 타격 · ${_daResult.bpm}BPM`);
+};
+
+// ═══════════════════════════════════════════════════════════════
 //  드럼 3D 드래그
 //  좌클릭 드래그 → 드럼을 수평면(XY URDF)에서 이동
 //  URDF 좌표 ↔ Three.js 세계 좌표 변환:

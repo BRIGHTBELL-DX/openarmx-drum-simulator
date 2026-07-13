@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenArmX 드럼 로봇 시뮬레이터</title>
-<link rel="stylesheet" href="css/style.css?v=8">
+<link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
 
@@ -17,7 +17,7 @@
       <option value="4">4/4</option>
       <option value="3">3/4</option>
     </select></label>
-    <label>마디 <input id="bars-inp" type="number" min="1" max="32" value="8" step="1"></label>
+    <label>마디 <input id="bars-inp" type="number" min="1" max="400" value="8" step="1"></label>
     <button id="apply-btn" onclick="applyPattern()">▶ 적용 &amp; 재생</button>
     <button class="btn-validate" onclick="validatePattern()">✓ 검증</button>
     <button class="btn-export" onclick="exportYAML()">📥 YAML 내보내기</button>
@@ -27,6 +27,11 @@
       <input type="file" id="audio-file" accept="audio/*" style="display:none" onchange="loadAudioFile(this)">
     </label>
     <span id="audio-name">파일 없음</span>
+    <label class="audio-label" title="드럼만 있는 MP3/WAV 파일을 분석해 타격 타임라인을 자동 생성합니다(BPM 자동 추정 포함)">
+      🥁 드럼 분석
+      <input type="file" id="drum-audio-file" accept="audio/*" style="display:none" onchange="analyzeDrumAudio(this)">
+    </label>
+    <span id="drum-audio-name">파일 없음</span>
   </div>
 </div>
 
@@ -194,6 +199,17 @@
   </div>
 </div>
 
+<!-- ══ 드럼 오디오 분석 모달 ══ -->
+<div id="drum-analysis-modal" style="display:none">
+  <div id="drum-analysis-box">
+    <div class="modal-header">
+      🥁 드럼 오디오 분석 결과
+      <button onclick="closeDrumAnalysis()">✕</button>
+    </div>
+    <div id="drum-analysis-content"></div>
+  </div>
+</div>
+
 <script type="importmap">
 {
   "imports": {
@@ -202,7 +218,7 @@
   }
 }
 </script>
-<script src="js/intro_outro_presets.js?v=81"></script>
-<script type="module" src="js/app.js?v=81"></script>
+<script src="js/intro_outro_presets.js?v=84"></script>
+<script type="module" src="js/app.js?v=84"></script>
 </body>
 </html>
