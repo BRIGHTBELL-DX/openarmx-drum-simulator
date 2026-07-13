@@ -167,6 +167,15 @@
           <option value="32">1/32</option>
         </select>
       </label>
+      <label title="레인을 드래그하면 이 간격마다 반복해서 타격을 채웁니다(하나씩 클릭할 필요 없음)">드래그 간격:
+        <select id="drag-interval-sel">
+          <option value="0.25">1/4박</option>
+          <option value="0.5">1/2박</option>
+          <option value="1" selected>1박</option>
+          <option value="2">2박</option>
+          <option value="4">4박</option>
+        </select>
+      </label>
       <div class="vel-mode-sel">
         <span class="vel-mode-label">강도</span>
         <button id="vel-mode-soft"   class="vel-mode-btn" onclick="setDefaultVel('soft')">약</button>
@@ -223,7 +232,7 @@
   }
 }
 </script>
-<script src="js/intro_outro_presets.js?v=90"></script>
-<script type="module" src="js/app.js?v=90"></script>
+<script src="js/intro_outro_presets.js?v=91"></script>
+<script type="module" src="js/app.js?v=91"></script>
 </body>
 </html>

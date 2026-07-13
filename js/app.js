@@ -3169,19 +3169,29 @@ function renderTimeline() {
       lane.appendChild(hit);
     });
 
-    lane.addEventListener('click', e => {
-      if (e.target.classList.contains('tl-hit')) return;
+    function beatFromEvent(e) {
       const rect    = lane.getBoundingClientRect();
       const scrollL = document.getElementById('tl-scroll')?.scrollLeft || 0;
       const rawX    = e.clientX - rect.left + scrollL;
       let beat      = rawX / PX_PER_BEAT + 1;
-
       if (document.getElementById('chk-snap')?.checked) {
         const snapUnit = 4 / div;
         beat = Math.round(beat / snapUnit) * snapUnit;
       }
-      beat = parseFloat(clamp(beat, 1, totalBeats + 1).toFixed(4));
-      addEvent(drum.id, beat);
+      return parseFloat(clamp(beat, 1, totalBeats + 1).toFixed(4));
+    }
+
+    lane.addEventListener('click', e => {
+      if (e.target.classList.contains('tl-hit')) return;
+      if (_tlDragOccurred) { _tlDragOccurred = false; return; } // 드래그 직후의 클릭은 무시(중복 토글 방지)
+      addEvent(drum.id, beatFromEvent(e));
+    });
+
+    // 드래그로 일정 간격마다 반복 채우기 — mousemove/mouseup은 document에 한 번만
+    // 등록해 커서가 레인 밖으로 살짝 벗어나도 드래그가 끊기지 않게 한다.
+    lane.addEventListener('mousedown', e => {
+      if (e.button !== 0 || e.target.classList.contains('tl-hit')) return;
+      _tlDrag = { drumId: drum.id, lane, startBeat: beatFromEvent(e), filled: new Set() };
     });
 
     lanesEl.appendChild(lane);
@@ -3255,6 +3265,62 @@ function removeEvent(drumId, beat) {
     _commitTimeline();
   }
 }
+
+// 이미 있으면 건드리지 않고 새 것만 추가 — addEvent는 같은 자리를 다시 누르면
+// 토글(삭제)하므로, 드래그로 같은 위치를 여러 번 지나가도 지워지지 않게 분리.
+function addEventIfMissing(drumId, beat) {
+  const exists = timelineEvents.some(e => e.drumId === drumId && Math.abs(e.beat - beat) < 0.01);
+  if (!exists) addEvent(drumId, beat);
+}
+
+// ── 타임라인 레인 드래그 → 지정 간격마다 반복 채우기 ─────────────────
+// 하나씩 클릭하는 대신, 레인을 누른 채 드래그하면 "드래그 간격" 설정값
+// (1/4~4박)마다 비트 1을 기준으로 한 전역 그리드 위치에 자동으로 타격을
+// 채운다. mousemove/mouseup은 레인이 renderTimeline()마다 다시 생성되므로
+// document에 한 번만 등록해 리스너가 쌓이지 않게 한다.
+let _tlDrag = null;          // { drumId, lane, startBeat, filled }
+let _tlDragOccurred = false; // 드래그가 실제로 일어났으면 뒤이은 click을 무시
+
+document.addEventListener('mousemove', e => {
+  if (!_tlDrag) return;
+  const { startBeat, filled } = _tlDrag;
+  // _commitTimeline()이 renderTimeline()으로 레인 DOM을 통째로 다시 만들기
+  // 때문에, mousedown 시점의 lane 참조를 그대로 쓰면 첫 타격이 채워진 순간
+  // 이후로 낡은(detached) 엘리먼트가 되어 나머지 드래그가 전부 깨진다 —
+  // 매번 현재 DOM에서 다시 찾는다.
+  const lane = document.querySelector(`.tl-lane[data-drum-id="${_tlDrag.drumId}"]`);
+  if (!lane) { _tlDrag = null; return; }
+  const rect    = lane.getBoundingClientRect();
+  const scrollL = document.getElementById('tl-scroll')?.scrollLeft || 0;
+  const rawX    = e.clientX - rect.left + scrollL;
+  const curBeat = rawX / PX_PER_BEAT + 1;
+
+  if (!_tlDragOccurred && Math.abs(curBeat - startBeat) < 0.05) return; // 미세한 움직임은 클릭으로 취급
+  _tlDragOccurred = true;
+
+  const interval   = parseFloat(document.getElementById('drag-interval-sel')?.value) || 1;
+  const totalBeats = totalBars * beatsPerBar;
+  const lo = Math.min(startBeat, curBeat);
+  const hi = Math.max(startBeat, curBeat);
+  // 비트 1을 기준으로 한 전역 간격 그리드(1, 1+interval, 1+2*interval, ...) 중
+  // 드래그 구간에 걸치는 위치만 골라 채운다.
+  const firstK = Math.ceil((lo - 1) / interval);
+  const lastK  = Math.floor((hi - 1) / interval);
+  let addedAny = false;
+  for (let k = firstK; k <= lastK; k++) {
+    const beat = parseFloat((1 + k * interval).toFixed(4));
+    if (beat < 1 || beat > totalBeats + 1) continue;
+    const key = beat.toFixed(4);
+    if (filled.has(key)) continue;
+    filled.add(key);
+    const before = timelineEvents.length;
+    addEventIfMissing(_tlDrag.drumId, beat);
+    if (timelineEvents.length !== before) addedAny = true;
+  }
+  if (addedAny) _commitTimeline();
+});
+
+document.addEventListener('mouseup', () => { _tlDrag = null; });
 
 // 노트 클릭 시 현재 선택된 defaultVel로 즉시 적용
 function applyVel(drumId, beat) {
