@@ -2032,21 +2032,25 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
 
     // 스틱을 쥔 두 팔이 동시에 교차 자세로 들어가면 궤적이 겹칠 수 있어(서로
     // 통과 불가) 왼팔이 먼저 들어가 고정하고, 오른팔이 그 앞을 가로질러
-    // 들어가며 코킹 없이 곧바로 타격 각도로 도착(속도감). 그다음 왼팔은
-    // 이미 제자리에 있으므로 손목만 스냅해 2번째 타격.
+    // 들어가며 코킹 없이 곧바로 타격 각도로 도착(속도감). 왼팔의 손목
+    // 스냅(바깥→안쪽)은 시각적으로 어색해 보여 제거 — 왼팔은 교차 자세로
+    // 진입한 뒤로는 완전히 고정하고, 오른팔 손목(J7)만 재코킹→스냅으로
+    // 2번 타격한다.
     const leftInCross = { ...poseB,
       L1: cross.L1, L2: cross.L2, L3: cross.L3, L4: cross.L4, L7: cross.L7 };
-    const rightStrike = { ...leftInCross,
+    const rightStrike1  = { ...leftInCross,
       R1: cross.R1, R2: cross.R2, R3: cross.R3, R4: cross.R4, R7: style.strikeR7 };
-    const leftStrike  = { ...rightStrike, L7: style.strikeL7 };
+    const rightRecock   = { ...rightStrike1, R7: cross.R7 };
+    const rightStrike2  = { ...rightStrike1 };
 
     return [
-      { time: 0.00, angles: nu          },
-      { time: 0.55, angles: poseA       },  // 후인 + 손목 들기(공통 진입)
-      { time: 0.90, angles: poseB       },  // J1 복귀
-      { time: 1.30, angles: leftInCross },  // 왼팔 먼저 교차 자세로 진입 + 고정
-      { time: 1.65, angles: rightStrike },  // 오른팔이 앞을 가로질러 들어가며 1번째 타격
-      { time: 2.00, angles: leftStrike  },  // 왼팔 손목 스냅 — 2번째 타격
+      { time: 0.00, angles: nu           },
+      { time: 0.55, angles: poseA        },  // 후인 + 손목 들기(공통 진입)
+      { time: 0.90, angles: poseB        },  // J1 복귀
+      { time: 1.30, angles: leftInCross  },  // 왼팔 먼저 교차 자세로 진입 + 고정(이후 계속 고정)
+      { time: 1.65, angles: rightStrike1 },  // 오른팔이 앞을 가로질러 들어가며 1번째 타격
+      { time: 2.00, angles: rightRecock  },  // 오른팔 손목 재코킹
+      { time: 2.35, angles: rightStrike2 },  // 오른팔 손목 스냅 — 2번째 타격
       ...tail,
     ];
   }
