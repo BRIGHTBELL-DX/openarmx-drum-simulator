@@ -2032,29 +2032,29 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
 
     // 스틱을 쥔 두 팔이 동시에 교차 자세로 들어가면 궤적이 겹칠 수 있어(서로
     // 통과 불가) 왼팔이 먼저 들어가 고정하고, 오른팔이 그 앞을 가로질러
-    // 들어가며 코킹 없이 곧바로 타격 각도로 도착(속도감). 왼팔의 손목
-    // 스냅(바깥→안쪽)은 시각적으로 어색해 보여 제거 — 왼팔은 교차 자세로
-    // 진입한 뒤로는 완전히 고정하고, 오른팔 손목(J7)만 재코킹→스냅으로
-    // 2번 타격한다.
+    // 들어가며 준비 자세로 도착(아직 타격 아님). 왼팔의 손목 스냅(바깥→
+    // 안쪽)은 시각적으로 어색해 보여 제거 — 왼팔은 교차 자세로 진입한
+    // 뒤로는 완전히 고정하고, 오른팔 손목(J7)만 준비→코킹→스냅을 두 번
+    // 반복해 타격한다(일반 드럼 타격과 동일한 raise→strike 구조).
     const leftInCross = { ...poseB,
       L1: cross.L1, L2: cross.L2, L3: cross.L3, L4: cross.L4, L7: cross.L7 };
-    const rightStrike1  = { ...leftInCross,
-      R1: cross.R1, R2: cross.R2, R3: cross.R3, R4: cross.R4, R7: style.strikeR7 };
-    // 이전 버전(재코킹 폭을 poseB.R7까지 크게 키운 것)으로 되돌림 — 사용자
-    // 피드백: "2번째 타격"은 손목을 다시 크게 들었다 내려치는 게 아니라
-    // 그림처럼 스틱 두 개가 서로 마주 닿는 순간이어야 한다. crossPose.R7
-    // (-0.29) 기준으로 재코킹.
-    const rightRecock   = { ...rightStrike1, R7: cross.R7 };
-    const rightStrike2  = { ...rightStrike1 };
+    const rightReady   = { ...leftInCross,
+      R1: cross.R1, R2: cross.R2, R3: cross.R3, R4: cross.R4, R7: style.readyR7 };
+    const rightRaise1  = { ...rightReady, R7: style.raiseR7 };
+    const rightStrike1 = { ...rightReady, R7: style.strikeR7 };
+    const rightRaise2  = { ...rightReady, R7: style.raiseR7 };
+    const rightStrike2 = { ...rightReady, R7: style.strikeR7 };
 
     return [
       { time: 0.00, angles: nu           },
       { time: 0.55, angles: poseA        },  // 후인 + 손목 들기(공통 진입)
       { time: 0.90, angles: poseB        },  // J1 복귀
       { time: 1.30, angles: leftInCross  },  // 왼팔 먼저 교차 자세로 진입 + 고정(이후 계속 고정)
-      { time: 1.65, angles: rightStrike1 },  // 오른팔이 앞을 가로질러 들어가며 1번째 타격
-      { time: 2.00, angles: rightRecock  },  // 오른팔 손목 재코킹
-      { time: 2.35, angles: rightStrike2 },  // 오른팔 손목 스냅 — 2번째 타격
+      { time: 1.55, angles: rightReady   },  // 오른팔이 앞을 가로질러 들어가 준비 자세(아직 타격 아님)
+      { time: 1.80, angles: rightRaise1  },  // 손목 코킹 — 1번째 타격 준비
+      { time: 1.95, angles: rightStrike1 },  // 손목 스냅 — 1번째 타격
+      { time: 2.20, angles: rightRaise2  },  // 손목 재코킹 — 2번째 타격 준비
+      { time: 2.35, angles: rightStrike2 },  // 손목 스냅 — 2번째 타격
       ...tail,
     ];
   }
