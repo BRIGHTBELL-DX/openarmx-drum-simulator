@@ -2,7 +2,7 @@
 :root {
   --hdr:   50px;
   --tl-h:  320px;
-  --panel-w: 500px;
+  --panel-w: 580px;
   --bg:    #08080e;
   --bg2:   #0d0d1e;
   --bg3:   #111126;
@@ -232,7 +232,7 @@ body {
    전부 배치한다(예전엔 2열 카드로 쌓아서 세로 공간이 많이 필요했음). */
 .drum-row {
   display: grid;
-  grid-template-columns: 8px minmax(46px,1fr) 54px 26px 42px 42px 42px 58px 15px 15px;
+  grid-template-columns: 8px minmax(46px,1fr) 60px 30px 58px 58px 58px 60px 16px 16px;
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
@@ -300,6 +300,14 @@ body {
   text-align: center;
 }
 .drum-pos-inp:focus { border-color: var(--accent); outline: none; }
+/* 네이티브 숫자 스피너 제거 — 좁은 칸에서 숫자와 겹쳐 보이던 문제 해결,
+   그만큼 확보된 폭은 전부 숫자 표시에 쓴다 */
+.drum-pos-inp::-webkit-inner-spin-button,
+.drum-pos-inp::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.drum-pos-inp { -moz-appearance: textfield; }
 .drum-vel-preview {
   display: flex;
   gap: 2px;
