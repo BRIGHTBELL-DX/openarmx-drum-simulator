@@ -169,7 +169,7 @@ body {
   opacity: 0.4;
 }
 .panel-header {
-  padding: 9px 12px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 700;
   color: #ccddff;
@@ -181,11 +181,11 @@ body {
   flex-shrink: 0;
 }
 .panel-hint {
-  padding: 5px 10px;
+  padding: 3px 10px;
   font-size: 10px;
   color: #334;
   border-bottom: 1px solid var(--border);
-  line-height: 1.6;
+  line-height: 1.4;
   flex-shrink: 0;
 }
 .btn-sm {
@@ -203,7 +203,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 10px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -221,34 +221,27 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-content: start;
   min-width: 0;
 }
 #drum-list::-webkit-scrollbar { width: 4px; }
 #drum-list::-webkit-scrollbar-track { background: transparent; }
 #drum-list::-webkit-scrollbar-thumb { background: #2a2a50; border-radius: 2px; }
 
-.drum-item {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px 7px;
-}
-/* 홀수 번째(왼쪽 열)에 오른쪽 경계선 */
-.drum-item:nth-child(odd) {
-  border-right: 1px solid var(--border);
-}
-/* 2열 레이아웃 — 슬라이더·드래그 힌트 숨김 */
-.drum-pos-slider { display: none; }
-.drag-hint       { display: none; }
-.drum-item-header {
-  display: flex;
+/* 드럼 1개 = 표 형태 한 줄. 8개가 스크롤 없이 한 화면에 다 보이도록
+   세로로 쌓지 않고 가로 한 줄에 이름·타입·팔·X/Y/Z·미리듣기·자동·삭제를
+   전부 배치한다(예전엔 2열 카드로 쌓아서 세로 공간이 많이 필요했음). */
+.drum-row {
+  display: grid;
+  grid-template-columns: 8px minmax(46px,1fr) 54px 26px 42px 42px 42px 58px 15px 15px;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 4px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
 }
+.drum-row:hover { background: rgba(50,70,130,0.08); }
+.drum-row.drum-selected { background: rgba(70,120,255,0.14); }
 .drum-color-dot {
-  width: 9px; height: 9px;
+  width: 8px; height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 0 4px currentColor;
@@ -260,9 +253,9 @@ body {
   color: #ccd;
   font-size: 12px;
   font-weight: 600;
-  flex: 1;
   outline: none;
   min-width: 0;
+  width: 100%;
 }
 .drum-name-inp:focus { border-bottom-color: var(--accent); }
 .drum-del-btn {
@@ -270,74 +263,47 @@ body {
   border: none;
   color: #444;
   cursor: pointer;
-  font-size: 14px;
-  padding: 0 2px;
+  font-size: 13px;
+  padding: 0;
   line-height: 1;
 }
 .drum-del-btn:hover { color: #c44; }
 .drum-autogen-chk {
   display: flex;
   align-items: center;
-  gap: 3px;
-  color: #7890b0;
-  font-size: 10px;
-  white-space: nowrap;
+  justify-content: center;
   cursor: pointer;
-  user-select: none;
 }
-.drum-autogen-chk input { cursor: pointer; }
-.drum-type-row {
-  display: flex;
-  gap: 5px;
-  margin-bottom: 5px;
-}
+.drum-autogen-chk input { cursor: pointer; margin: 0; }
 .drum-type-sel, .drum-arm-sel {
   background: var(--bg3);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 3px;
   font-size: 10px;
-  padding: 2px 2px;
-  flex: 1;
+  padding: 2px 1px;
+  width: 100%;
   min-width: 0;
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.drum-pos-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 4px;
-}
-.drum-pos-group label {
-  display: block;
-  font-size: 9px;
-  color: var(--dim);
-  margin-bottom: 2px;
-  text-align: center;
 }
 .drum-pos-inp {
   background: var(--bg3);
   border: 1px solid var(--border);
   color: #9abeee;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 13px;
   font-family: monospace;
-  padding: 2px 3px;
+  padding: 3px 1px;
   width: 100%;
   text-align: center;
 }
 .drum-pos-inp:focus { border-color: var(--accent); outline: none; }
-.drum-reach-badge {
-  display: inline-block;
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-top: 4px;
+.drum-vel-preview {
+  display: flex;
+  gap: 2px;
 }
-.reach-ok   { background:#0a2a10; color:#50c860; border:1px solid #1a5020; }
-.reach-warn { background:#2a1a00; color:#e0a030; border:1px solid #5a3800; }
-.reach-err  { background:#2a0808; color:#e04040; border:1px solid #5a1010; }
 
 /* ── 3D 뷰포트 ── */
 #viewport {
@@ -842,46 +808,12 @@ body {
   color: #aabbdd;
 }
 
-/* ── 드럼 위치 슬라이더 ── */
-.drum-pos-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.drum-pos-group label {
-  font-size: 8px;
-}
-.drum-pos-inp {
-  font-size: 10px;
-  padding: 1px 2px;
-  min-width: 0;
-  width: 100%;
-}
-.drum-pos-slider {
-  width: 100%;
-  accent-color: var(--accent);
-  cursor: pointer;
-  margin-top: 1px;
-}
-.drag-hint {
-  font-size: 9px;
-  color: #334;
-  margin-top: 3px;
-  font-style: italic;
-}
-
 /* ── 드럼 미리보기 버튼 (약/중/강) ── */
-.drum-vel-preview {
-  display: flex;
-  gap: 3px;
-  margin-bottom: 5px;
-}
 .dvp-btn {
   flex: 1;
   font-size: 9px;
   font-weight: 700;
-  padding: 3px 0;
+  padding: 2px 0;
   border-radius: 3px;
   cursor: pointer;
   line-height: 1.4;
@@ -907,11 +839,6 @@ body {
 }
 .drum-preview-btn:hover { opacity: 1; transform: scale(1.2); }
 
-/* ── 선택된 드럼 하이라이트 ── */
-.drum-item.drum-selected {
-  background: rgba(58, 122, 224, 0.10);
-  border-left: 2px solid var(--accent);
-}
 
 /* ── 씬 팔레트 ── */
 .palette-section {

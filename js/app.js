@@ -1853,6 +1853,19 @@ function rebuildDrumSpheres() {
     base.position.z = -standH;
     grp.add(base);
   });
+
+  drumKit.forEach(drum => _updateDrumReachVisual(drum));
+}
+
+// 팔이 닿지 않는 위치로 옮겨졌을 때 드럼 헤드 색을 빨간색으로 바꿔 재생 없이도
+// 바로 알 수 있게 한다(킥은 팔 미배정이라 대상 아님).
+function _updateDrumReachVisual(drum) {
+  const mesh = drumMeshes[drum.id];
+  if (!mesh || drum.type === 'kick') return;
+  const unreachable = reachDist(drum) > STICK_REACH;
+  const baseColor = unreachable ? 0xe04040 : DRUM_TYPES[drum.type].color;
+  mesh.material.color.set(baseColor);
+  mesh.material.emissive.set(baseColor).multiplyScalar(0.20);
 }
 
 // ── 재생 상태 ────────────────────────────────────────────────
@@ -3095,8 +3108,10 @@ renderer.domElement.addEventListener('mousemove', e => {
     const grp = drumGroups[_dragDrumId];
     if (grp) grp.position.set(drum.pos.x, drum.pos.y, drum.pos.z);
 
+    _updateDrumReachVisual(drum);   // 드래그 중에도 도달 불가 시 즉시 빨간색으로
+
     // 패널 숫자 입력 즉시 반영
-    const item = document.querySelector(`.drum-item[data-id="${drum.id}"]`);
+    const item = document.querySelector(`.drum-row[data-id="${drum.id}"]`);
     if (item) {
       const inps = item.querySelectorAll('.drum-pos-inp');
       if (inps[0]) inps[0].value = drum.pos.x.toFixed(2);
@@ -3116,7 +3131,7 @@ renderer.domElement.addEventListener('mouseup', () => {
     _isDragging   = false;
     orbit.enabled = true;
     renderer.domElement.style.cursor = '';
-    // 드래그 후 reach badge 갱신 + 키프레임 재빌드
+    // 드래그 후 키프레임 재빌드
     saveDrumKit();
     _checkTemplateDirty();
     renderDrumList();
@@ -3450,10 +3465,10 @@ window.previewDrumHit = function (drumId, vel = 'medium') {
   }
 
   // 패널 선택 하이라이트 + 버튼 활성 표시
-  document.querySelectorAll('.drum-item').forEach(el => el.classList.remove('drum-selected'));
-  document.querySelector(`.drum-item[data-id="${drumId}"]`)?.classList.add('drum-selected');
+  document.querySelectorAll('.drum-row').forEach(el => el.classList.remove('drum-selected'));
+  document.querySelector(`.drum-row[data-id="${drumId}"]`)?.classList.add('drum-selected');
   document.querySelectorAll('.dvp-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`.drum-item[data-id="${drumId}"] .dvp-${vel}`)?.classList.add('active');
+  document.querySelector(`.drum-row[data-id="${drumId}"] .dvp-${vel}`)?.classList.add('active');
 
   // 드럼 구체 플래시
   const mesh = drumMeshes[drumId];
@@ -4004,79 +4019,43 @@ function renderDrumList() {
   el.innerHTML = drumKit.map(drum => {
     const typeInfo  = DRUM_TYPES[drum.type] || DRUM_TYPES.snare;
     const isKick    = drum.type === 'kick';
-    const dist      = reachDist(drum);
-    const reachCls  = isKick ? 'reach-ok' : dist > STICK_REACH ? 'reach-err' : dist > STICK_REACH * 0.88 ? 'reach-warn' : 'reach-ok';
-    const reachTxt  = isKick ? '표시 전용 (팔 미사용)' : dist > STICK_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
 
     return `
-<div class="drum-item" data-id="${drum.id}">
-  <div class="drum-item-header">
-    <div class="drum-color-dot" style="background:${typeInfo.color};color:${typeInfo.color}"></div>
-    <input class="drum-name-inp" value="${drum.name}"
-      onchange="updateDrumProp('${drum.id}','name',this.value)">
-    ${isKick ? '' : `
-    <label class="drum-autogen-chk" title="체크 해제 시 🎲 자동 생성에서 이 드럼을 사용하지 않음(실물 테스트로 일부 드럼만 연결했을 때 유용)">
-      <input type="checkbox" ${drum.autoGen === false ? '' : 'checked'}
-        onchange="updateDrumProp('${drum.id}','autoGen',this.checked)"> 자동
-    </label>`}
-    <button class="drum-del-btn" onclick="deleteDrum('${drum.id}')" title="삭제">✕</button>
-  </div>
+<div class="drum-row" data-id="${drum.id}" title="뷰포트에서 드래그로 위치 이동 가능">
+  <div class="drum-color-dot" style="background:${typeInfo.color};color:${typeInfo.color}"></div>
+  <input class="drum-name-inp" value="${drum.name}"
+    onchange="updateDrumProp('${drum.id}','name',this.value)">
+  <select class="drum-type-sel" onchange="updateDrumProp('${drum.id}','type',this.value)">
+    ${typeOpts.replace(`value="${drum.type}"`, `value="${drum.type}" selected`)}
+  </select>
+  ${isKick
+    ? `<select class="drum-arm-sel" disabled title="킥은 표시 전용 — 팔이 연주하지 않음"><option selected>−</option></select>`
+    : `<select class="drum-arm-sel" onchange="updateDrumProp('${drum.id}','arm',this.value)">
+    <option value="L" ${drum.arm==='L'?'selected':''}>L</option>
+    <option value="R" ${drum.arm==='R'?'selected':''}>R</option>
+  </select>`}
+  <input class="drum-pos-inp" type="number" step="0.01" title="X (앞)" value="${drum.pos.x.toFixed(2)}"
+    onchange="updateDrumPos('${drum.id}','x',+this.value)">
+  <input class="drum-pos-inp" type="number" step="0.01" title="Y (좌우)" value="${drum.pos.y.toFixed(2)}"
+    onchange="updateDrumPos('${drum.id}','y',+this.value)">
+  <input class="drum-pos-inp" type="number" step="0.01" title="Z (높이)" value="${drum.pos.z.toFixed(2)}"
+    onchange="updateDrumPos('${drum.id}','z',+this.value)">
   <div class="drum-vel-preview">
     <button class="dvp-btn dvp-soft"   onclick="previewDrumHit('${drum.id}','soft')"   title="약 미리보기 (TCP 경로 표시)">약</button>
     <button class="dvp-btn dvp-medium" onclick="previewDrumHit('${drum.id}','medium')" title="중 미리보기 (TCP 경로 표시)">중</button>
     <button class="dvp-btn dvp-hard"   onclick="previewDrumHit('${drum.id}','hard')"   title="강 미리보기 (TCP 경로 표시)">강</button>
   </div>
-  <div class="drum-type-row">
-    <select class="drum-type-sel" onchange="updateDrumProp('${drum.id}','type',this.value)">
-      ${typeOpts.replace(`value="${drum.type}"`, `value="${drum.type}" selected`)}
-    </select>
-    ${isKick
-      ? `<select class="drum-arm-sel" disabled title="킥은 표시 전용 — 팔이 연주하지 않음"><option selected>표시용</option></select>`
-      : `<select class="drum-arm-sel" onchange="updateDrumProp('${drum.id}','arm',this.value)">
-      <option value="L" ${drum.arm==='L'?'selected':''}>왼팔 L</option>
-      <option value="R" ${drum.arm==='R'?'selected':''}>오른팔 R</option>
-    </select>`}
-  </div>
-  <div class="drum-pos-row">
-    <div class="drum-pos-group">
-      <label>X (앞)</label>
-      <input class="drum-pos-inp" type="number" step="0.01" value="${drum.pos.x.toFixed(2)}"
-        onchange="updateDrumPos('${drum.id}','x',+this.value)">
-      <input class="drum-pos-slider" type="range" min="0.20" max="0.90" step="0.01"
-        value="${drum.pos.x.toFixed(2)}"
-        oninput="updateDrumPos('${drum.id}','x',+this.value);syncSlider(this,'x')">
-    </div>
-    <div class="drum-pos-group">
-      <label>Y (좌우)</label>
-      <input class="drum-pos-inp" type="number" step="0.01" value="${drum.pos.y.toFixed(2)}"
-        onchange="updateDrumPos('${drum.id}','y',+this.value)">
-      <input class="drum-pos-slider" type="range" min="-0.90" max="0.90" step="0.01"
-        value="${drum.pos.y.toFixed(2)}"
-        oninput="updateDrumPos('${drum.id}','y',+this.value);syncSlider(this,'y')">
-    </div>
-    <div class="drum-pos-group">
-      <label>Z (높이)</label>
-      <input class="drum-pos-inp" type="number" step="0.01" value="${drum.pos.z.toFixed(2)}"
-        onchange="updateDrumPos('${drum.id}','z',+this.value)">
-      <input class="drum-pos-slider" type="range" min="0.25" max="1.00" step="0.01"
-        value="${drum.pos.z.toFixed(2)}"
-        oninput="updateDrumPos('${drum.id}','z',+this.value);syncSlider(this,'z')">
-    </div>
-  </div>
-  <span class="drum-reach-badge ${reachCls}">${reachTxt}</span>
-  <div class="drag-hint">뷰포트에서 드래그로 위치 이동 가능</div>
+  ${isKick
+    ? `<span class="drum-autogen-chk"></span>`
+    : `<label class="drum-autogen-chk" title="체크 해제 시 🎲 자동 생성에서 이 드럼을 사용하지 않음(실물 테스트로 일부 드럼만 연결했을 때 유용)">
+    <input type="checkbox" ${drum.autoGen === false ? '' : 'checked'}
+      onchange="updateDrumProp('${drum.id}','autoGen',this.checked)">
+  </label>`}
+  <button class="drum-del-btn" onclick="deleteDrum('${drum.id}')" title="삭제">✕</button>
 </div>`;
   }).join('');
 }
 
-window.syncSlider = function (sliderEl, axis) {
-  // 슬라이더 → 숫자 입력 동기화
-  const item = sliderEl.closest('.drum-item');
-  if (!item) return;
-  const axisIdx = { x:0, y:1, z:2 }[axis];
-  const inp = item.querySelectorAll('.drum-pos-inp')[axisIdx];
-  if (inp) inp.value = parseFloat(sliderEl.value).toFixed(2);
-};
 
 window.updateDrumProp = function (id, prop, val) {
   const drum = drumKit.find(d => d.id === id);
@@ -4101,22 +4080,14 @@ window.updateDrumPos = function (id, axis, val) {
   const grp = drumGroups[id];
   if (grp) grp.position.set(drum.pos.x, drum.pos.y, drum.pos.z);
 
-  // reach badge만 갱신 (전체 재렌더 방지)
-  const item = document.querySelector(`.drum-item[data-id="${id}"]`);
+  _updateDrumReachVisual(drum);   // 전체 재렌더 없이 도달 불가 시 드럼 색만 갱신
+
+  // 소수점 2자리로 표시 정규화
+  const item = document.querySelector(`.drum-row[data-id="${id}"]`);
   if (item) {
-    const isKick   = drum.type === 'kick';
-    const dist     = reachDist(drum);
-    const badge    = item.querySelector('.drum-reach-badge');
-    if (badge) {
-      badge.className = 'drum-reach-badge ' + (isKick ? 'reach-ok' : dist > STICK_REACH ? 'reach-err' : dist > STICK_REACH * 0.88 ? 'reach-warn' : 'reach-ok');
-      badge.textContent = isKick ? '표시 전용 (팔 미사용)' : dist > STICK_REACH ? `도달 불가 (${dist.toFixed(2)}m)` : `${dist.toFixed(2)}m`;
-    }
-    // 동기: 숫자입력 → 슬라이더
     const inps    = item.querySelectorAll('.drum-pos-inp');
-    const sliders = item.querySelectorAll('.drum-pos-slider');
     const axisIdx = { x:0, y:1, z:2 }[axis];
-    if (inps[axisIdx])    inps[axisIdx].value    = val.toFixed(2);
-    if (sliders[axisIdx]) sliders[axisIdx].value  = val.toFixed(2);
+    if (inps[axisIdx]) inps[axisIdx].value = val.toFixed(2);
   }
   saveDrumKit();
   _checkTemplateDirty();
