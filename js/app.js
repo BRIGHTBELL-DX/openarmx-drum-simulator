@@ -2047,27 +2047,37 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
     // 통과 불가) 왼팔이 먼저 들어가 고정하고, 오른팔이 그 앞을 가로질러
     // 들어가며 준비 자세로 도착(아직 타격 아님). 왼팔의 손목 스냅(바깥→
     // 안쪽)은 시각적으로 어색해 보여 제거 — 왼팔은 교차 자세로 진입한
-    // 뒤로는 완전히 고정하고, 오른팔 손목(J7)만 준비→코킹→스냅을 두 번
-    // 반복해 타격한다(일반 드럼 타격과 동일한 raise→strike 구조).
+    // 뒤로는 완전히 고정하고, 오른팔 손목(J7)만 준비→코킹→스냅을 반복해
+    // 타격한다(일반 드럼 타격과 동일한 raise→strike 구조).
     const leftInCross = { ...poseB,
       L1: cross.L1, L2: cross.L2, L3: cross.L3, L4: cross.L4, L7: cross.L7 };
-    const rightReady   = { ...leftInCross,
+    const rightReady  = { ...leftInCross,
       R1: cross.R1, R2: cross.R2, R3: cross.R3, R4: cross.R4, R7: style.readyR7 };
-    const rightRaise1  = { ...rightReady, R7: style.raiseR7 };
-    const rightStrike1 = { ...rightReady, R7: style.strikeR7 };
-    const rightRaise2  = { ...rightReady, R7: style.raiseR7 };
-    const rightStrike2 = { ...rightReady, R7: style.strikeR7 };
+    const rightRaise  = { ...rightReady, R7: style.raiseR7 };
+    const rightStrike = { ...rightReady, R7: style.strikeR7 };
+
+    // 타격 횟수 4회 — 진입(0~1.20s) 이후 남은 시간(1.20~2.75s)에 재코킹
+    // (0.25s)+스냅(0.10s) 사이클을 4번 반복해서 채운다. tail 시작(2.75s)
+    // 직전에 작게 여유(0.15s)를 남겨 firstRaisePose로의 전환이 급작스럽지
+    // 않게 한다.
+    const STRIKE_COUNT = 4;
+    const READY_TIME = 1.20, RAISE_DUR = 0.25, STRIKE_DUR = 0.10;
+    const strikeFrames = [];
+    let t = READY_TIME;
+    for (let i = 0; i < STRIKE_COUNT; i++) {
+      t = parseFloat((t + RAISE_DUR).toFixed(3));
+      strikeFrames.push({ time: t, angles: rightRaise });   // 손목 재코킹
+      t = parseFloat((t + STRIKE_DUR).toFixed(3));
+      strikeFrames.push({ time: t, angles: rightStrike });  // 손목 스냅 — 타격
+    }
 
     return [
-      { time: 0.00, angles: nu           },
-      { time: 0.55, angles: poseA        },  // 후인 + 손목 들기(공통 진입)
-      { time: 0.90, angles: poseB        },  // J1 복귀
-      { time: 1.30, angles: leftInCross  },  // 왼팔 먼저 교차 자세로 진입 + 고정(이후 계속 고정)
-      { time: 1.55, angles: rightReady   },  // 오른팔이 앞을 가로질러 들어가 준비 자세(아직 타격 아님)
-      { time: 1.80, angles: rightRaise1  },  // 손목 코킹 — 1번째 타격 준비
-      { time: 1.95, angles: rightStrike1 },  // 손목 스냅 — 1번째 타격
-      { time: 2.20, angles: rightRaise2  },  // 손목 재코킹 — 2번째 타격 준비
-      { time: 2.35, angles: rightStrike2 },  // 손목 스냅 — 2번째 타격
+      { time: 0.00,        angles: nu          },
+      { time: 0.40,        angles: poseA       },  // 후인 + 손목 들기(공통 진입)
+      { time: 0.70,        angles: poseB       },  // J1 복귀
+      { time: 1.00,        angles: leftInCross },  // 왼팔 먼저 교차 자세로 진입 + 고정(이후 계속 고정)
+      { time: READY_TIME,  angles: rightReady  },  // 오른팔이 앞을 가로질러 들어가 준비 자세(아직 타격 아님)
+      ...strikeFrames,
       ...tail,
     ];
   }
