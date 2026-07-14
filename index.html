@@ -157,6 +157,13 @@
     <span id="tl-info">4마디 · 120BPM · 4/4박자</span>
     <div id="tl-controls">
       <label class="chk-intro-outro"><input type="checkbox" id="chk-intro" checked> 4초 인트로</label>
+      <label title="4초 인트로 동안 neutral → 첫 타격 준비 자세로 가는 경로만 다름(첫 타격 시작 위치·타이밍은 항상 동일)">인트로 스타일:
+        <select id="intro-style-sel">
+          <option value="spread" selected>기본 (팔 벌림)</option>
+          <option value="retreat">후인 진입</option>
+          <option value="xstrike">X자 타격 (2회)</option>
+        </select>
+      </label>
       <label class="chk-intro-outro"><input type="checkbox" id="chk-outro" checked> 4초 아웃트로</label>
       <label><input type="checkbox" id="chk-snap" checked> 비트 스냅</label>
       <label>분해능:
@@ -232,7 +239,7 @@
   }
 }
 </script>
-<script src="js/intro_outro_presets.js?v=91"></script>
-<script type="module" src="js/app.js?v=91"></script>
+<script src="js/intro_outro_presets.js?v=94"></script>
+<script type="module" src="js/app.js?v=94"></script>
 </body>
 </html>

@@ -247,6 +247,7 @@ function saveSettings() {
       totalBars:    parseInt(document.getElementById('bars-inp')?.value)  || totalBars,
       introChecked: document.getElementById('chk-intro')?.checked ?? true,
       outroChecked: document.getElementById('chk-outro')?.checked ?? true,
+      introStyleId: document.getElementById('intro-style-sel')?.value || 'spread',
       stickJ7Offset,
       complexityMode,
     }));
@@ -262,6 +263,7 @@ function loadSettings() {
     if (s.totalBars   != null) { totalBars   = s.totalBars;    const el = document.getElementById('bars-inp');  if (el) el.value = totalBars; }
     if (s.introChecked != null) { const el = document.getElementById('chk-intro'); if (el) el.checked = s.introChecked; }
     if (s.outroChecked != null) { const el = document.getElementById('chk-outro'); if (el) el.checked = s.outroChecked; }
+    if (s.introStyleId != null) { const el = document.getElementById('intro-style-sel'); if (el) el.value = s.introStyleId; }
     if (s.stickJ7Offset   != null) { stickJ7Offset   = s.stickJ7Offset;   _setSliderPair('stick-j7-slider',   'stick-j7-val',   stickJ7Offset); }
     if (s.complexityMode  != null) { window.setComplexity(s.complexityMode); }
     updateTLInfo();
@@ -1995,18 +1997,52 @@ function _breathePose(base, amp) {
  *
  *  smoothstep 보간: 각 구간이 S곡선으로 자연스럽게 연결됨
  */
-function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset) {
+function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleId = 'spread') {
   const nu = _arrToAngles(preset.neutralPose);
-  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
+  const style = (typeof INTRO_STYLES !== 'undefined' && INTRO_STYLES[styleId]) || {};
 
-  return [
-    { time: 0.00, angles: nu                                 },
-    { time: 1.30, angles: as                                 },  // 팔 양옆 벌림
+  // firstRaisePose 도달 이후(2.75~4.00s)는 스타일과 무관하게 항상 동일 —
+  // 어떤 스타일을 골라도 실제 첫 타격 시작 위치·타이밍은 그대로 유지된다.
+  const tail = [
     { time: 2.75, angles: firstRaisePose                     },  // 첫 드럼 방향으로 회전 + 코킹
     { time: 3.00, angles: firstRaisePose                     },  // 홀드
     { time: 3.30, angles: _breathePose(firstRaisePose, +0.04)},  // 숨 들이쉬기
     { time: 3.70, angles: firstRaisePose                     },  // 숨 내쉬기 → 정지
     { time: 4.00, angles: firstStrikePose                    },  // ▶ 손목 스냅으로 내려치기
+  ];
+
+  if (styleId === 'retreat' && style.poseA && style.poseB) {
+    const poseA = _arrToAngles(style.poseA);
+    const poseB = _arrToAngles(style.poseB);
+    return [
+      { time: 0.00, angles: nu    },
+      { time: 1.00, angles: poseA },  // J1 후인 + J7 들어올림
+      { time: 1.65, angles: poseB },  // J1만 복귀
+      ...tail,
+    ];
+  }
+
+  if (styleId === 'xstrike' && style.crossPose) {
+    const cross      = _arrToAngles(style.crossPose);
+    const crossStkR  = { ...cross, R7: style.strikeR7 };
+    const crossStkL  = { ...cross, L7: style.strikeL7 };
+    return [
+      { time: 0.00, angles: nu        },
+      { time: 0.70, angles: cross     },  // 양팔 교차 — 스틱 X자
+      { time: 1.00, angles: crossStkR },  // 오른팔 손목 스냅 — 1번째 타격
+      { time: 1.30, angles: cross     },  // 재코킹
+      { time: 1.60, angles: crossStkL },  // 왼팔 손목 스냅 — 2번째 타격
+      { time: 1.90, angles: cross     },  // 정리
+      ...tail,
+    ];
+  }
+
+  // 기본(spread): 팔 양옆 벌림
+  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
+  return [
+    { time: 0.00, angles: nu },
+    { time: 1.30, angles: as },  // 팔 양옆 벌림
+    ...tail,
   ];
 }
 
@@ -2041,7 +2077,7 @@ function createDrumOutroTimeline(lastDrumPose, preset, startTime) {
  */
 function buildTimelineWithIntroOutro(options = {}) {
   const { includeIntro = true, includeOutro = true,
-          introOutroPresetId = 'default' } = options;
+          introOutroPresetId = 'default', introStyleId = 'spread' } = options;
 
   const preset = (typeof INTRO_OUTRO_PRESETS !== 'undefined'
     ? INTRO_OUTRO_PRESETS[introOutroPresetId]
@@ -2080,7 +2116,7 @@ function buildTimelineWithIntroOutro(options = {}) {
       ...(strikeR ? _sidePick(strikeR, 'R') : {}),
     };
 
-    const intro   = createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset);
+    const intro   = createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, introStyleId);
     const shifted = shiftTimeline(drumTL, 4.0);
     // shifted[0] = drumTL의 첫 프레임(대개 preLift/strike 혼재) → intro 마지막(firstStrikePose)이
     // 이를 대체하므로 제거(slice(1))
@@ -2105,8 +2141,9 @@ function buildTimelineWithIntroOutro(options = {}) {
 function buildFinalFlatTimeline() {
   const inclIntro = document.getElementById('chk-intro')?.checked ?? true;
   const inclOutro = document.getElementById('chk-outro')?.checked ?? true;
+  const introStyleId = document.getElementById('intro-style-sel')?.value || 'spread';
   return (inclIntro || inclOutro)
-    ? buildTimelineWithIntroOutro({ includeIntro: inclIntro, includeOutro: inclOutro })
+    ? buildTimelineWithIntroOutro({ includeIntro: inclIntro, includeOutro: inclOutro, introStyleId })
     : buildMergedKeyframes();
 }
 
@@ -4143,8 +4180,8 @@ function updateTLInfo() {
 loadDrumKit();
 window.addEventListener('resize', () => renderTimeline());
 
-// 인트로/아웃트로 체크박스 변경 → 재생 타임라인 즉시 갱신
-['chk-intro', 'chk-outro'].forEach(id => {
+// 인트로/아웃트로 체크박스·인트로 스타일 변경 → 재생 타임라인 즉시 갱신
+['chk-intro', 'chk-outro', 'intro-style-sel'].forEach(id => {
   document.getElementById(id)?.addEventListener('change', () => {
     _playKFs = buildFinalKeyframes();
     _playDur = _playKFs.totalTime;
