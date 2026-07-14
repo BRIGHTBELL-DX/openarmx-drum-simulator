@@ -2040,11 +2040,11 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
       L1: cross.L1, L2: cross.L2, L3: cross.L3, L4: cross.L4, L7: cross.L7 };
     const rightStrike1  = { ...leftInCross,
       R1: cross.R1, R2: cross.R2, R3: cross.R3, R4: cross.R4, R7: style.strikeR7 };
-    // 재코킹 폭을 crossPose.R7(-0.29)로 두면 스냅 각도가 0.03↔-0.29로 너무
-    // 작아(≈0.3rad) 2번째 타격이 거의 안 보였다(사용자 지적) — 진입 때
-    // 썼던 poseB의 큰 코킹값(1.23)까지 다시 들어올려 1번째 타격과
-    // 비슷한 크기의 스냅으로 보이게 한다.
-    const rightRecock   = { ...rightStrike1, R7: poseB.R7 };
+    // 이전 버전(재코킹 폭을 poseB.R7까지 크게 키운 것)으로 되돌림 — 사용자
+    // 피드백: "2번째 타격"은 손목을 다시 크게 들었다 내려치는 게 아니라
+    // 그림처럼 스틱 두 개가 서로 마주 닿는 순간이어야 한다. crossPose.R7
+    // (-0.29) 기준으로 재코킹.
+    const rightRecock   = { ...rightStrike1, R7: cross.R7 };
     const rightStrike2  = { ...rightStrike1 };
 
     return [
