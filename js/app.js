@@ -2061,20 +2061,44 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
 }
 
 /**
- * 아웃트로 4초 — 인트로의 역순 미러링
+ * 아웃트로 4초 — 인트로의 역순 미러링. 인트로 스타일 선택이 탈출 경로에도
+ * 그대로 적용된다(retreat·xstrike는 인트로 때와 같은 이유로 옆이 아니라
+ * 뒤로 후인하며 나가야 하므로) — "인트로/아웃트로 포함 여부" 체크박스와는
+ * 별개로, 스타일만 인트로와 항상 같이 간다.
  *
  *  +0.00s: lastDrumPose   — 마지막 드럼 자세
  *  +0.50s: frontReadyPose — 준비 자세 복귀
  *  +0.80s: breathe in
  *  +1.25s: frontReadyPose — 정지
- *  +2.70s: armSpreadPose  — 팔 양옆으로 벌리며 후퇴
+ *  spread            : +2.70s armSpreadPose(팔 양옆 벌리며 후퇴)
+ *  retreat / xstrike : +2.70s poseB → +3.35s poseA(인트로 poseA→poseB의 역순 —
+ *                      뒤로 후인하며 나감)
  *  +4.00s: neutralPose    — 완전 복귀
  */
-function createDrumOutroTimeline(lastDrumPose, preset, startTime) {
+function createDrumOutroTimeline(lastDrumPose, preset, startTime, styleId = 'spread') {
   const s  = startTime;
   const fp = _arrToAngles(preset.frontReadyPose);
-  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   const nu = _arrToAngles(preset.neutralPose);
+
+  if (styleId === 'retreat' || styleId === 'xstrike') {
+    const retreatStyle = (typeof INTRO_STYLES !== 'undefined' && INTRO_STYLES.retreat) || {};
+    if (retreatStyle.poseA && retreatStyle.poseB) {
+      const poseA = _arrToAngles(retreatStyle.poseA);
+      const poseB = _arrToAngles(retreatStyle.poseB);
+      return [
+        { time: s + 0.00, angles: lastDrumPose            },  // 마지막 드럼 자세
+        { time: s + 0.50, angles: fp                       },  // 준비 자세 복귀
+        { time: s + 0.80, angles: _breathePose(fp, +0.04) },  // 숨쉬기
+        { time: s + 1.25, angles: fp                       },  // 정지
+        { time: s + 2.70, angles: poseB                    },  // J1 복귀 위치(진입 poseB)
+        { time: s + 3.35, angles: poseA                    },  // 후인 + 손목 들기(진입 poseA)
+        { time: s + 4.00, angles: nu                       },  // 중립 복귀
+      ];
+    }
+  }
+
+  // 기본(spread): 팔 양옆 벌리며 후퇴
+  const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   return [
     { time: s + 0.00, angles: lastDrumPose              },
     { time: s + 0.50, angles: fp                         },  // 준비 자세 복귀
@@ -2143,7 +2167,7 @@ function buildTimelineWithIntroOutro(options = {}) {
     const lastPose = finalTL.length ? finalTL[finalTL.length - 1].angles
                                     : _arrToAngles(preset.neutralPose);
     const lastTime = finalTL.length ? finalTL[finalTL.length - 1].time : 0;
-    const outro    = createDrumOutroTimeline(lastPose, preset, lastTime);
+    const outro    = createDrumOutroTimeline(lastPose, preset, lastTime, introStyleId);
     // outro 첫 번째 == finalTL 마지막 → 중복 제거
     finalTL = [...finalTL, ...outro.slice(1)];
   }
