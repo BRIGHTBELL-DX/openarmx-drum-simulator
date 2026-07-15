@@ -825,7 +825,7 @@ function _sidePick(pose, side) {
   return out;
 }
 
-/** 해당 팔의 가장 이른 타격 이벤트(드럼·세기) — 킥 제외. 이벤트 없으면 null */
+/** 해당 팔의 가장 이른 타격 이벤트(드럼·세기·beat) — 킥 제외. 이벤트 없으면 null */
 function _firstArmHit(arm) {
   let best = null;
   timelineEvents.forEach(evt => {
@@ -833,7 +833,7 @@ function _firstArmHit(arm) {
     if (!drum || drum.type === 'kick' || drum.arm !== arm) return;
     if (!best || evt.beat < best.evt.beat) best = { evt, drum };
   });
-  return best ? { drum: best.drum, vel: best.evt.vel ?? 'medium' } : null;
+  return best ? { drum: best.drum, vel: best.evt.vel ?? 'medium', beat: best.evt.beat } : null;
 }
 
 function buildKeyframes() {
@@ -2168,10 +2168,21 @@ function buildTimelineWithIntroOutro(options = {}) {
 
   if (includeIntro) {
     // 각 팔의 실제 첫 타격 드럼에 대해 raise/strike 포즈를 직접 계산
-    // (해당 팔이 아예 연주하지 않으면 frontReadyPose로 대기)
+    // (해당 팔이 아예 연주하지 않거나, 곡 전체의 최초 박보다 늦게 등장하면
+    // frontReadyPose로 대기 — 늦게 들어오는 팔까지 인트로 끝(4.00s)에
+    // "이미 친 것처럼" 강제하면 타임라인에 없는 타격이 나오고, 그 직후
+    // 본편 트랙과 이어지며 불연속 점프+장시간 스플라인 드리프트까지
+    // 겹치는 문제가 있었음 — 곡 전체 최초 박과 같은 팔만 안무에 반영한다.)
     const { L: READY_L, R: READY_R } = _getReadyPoses();
-    const hitL = _firstArmHit('L');
-    const hitR = _firstArmHit('R');
+    let hitL = _firstArmHit('L');
+    let hitR = _firstArmHit('R');
+    const firstBeats = [hitL, hitR].filter(Boolean).map(h => h.beat);
+    if (firstBeats.length) {
+      const globalFirstBeat = Math.min(...firstBeats);
+      const BEAT_EPS = 0.001;
+      if (hitL && hitL.beat > globalFirstBeat + BEAT_EPS) hitL = null;
+      if (hitR && hitR.beat > globalFirstBeat + BEAT_EPS) hitR = null;
+    }
     const raiseL  = hitL ? computeStrikePose(hitL.drum, 'raise',  hitL.vel) : null;
     const strikeL = hitL ? computeStrikePose(hitL.drum, 'strike', hitL.vel) : null;
     const raiseR  = hitR ? computeStrikePose(hitR.drum, 'raise',  hitR.vel) : null;
