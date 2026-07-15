@@ -2014,13 +2014,16 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
   const nu = _arrToAngles(preset.neutralPose);
   const style = (typeof INTRO_STYLES !== 'undefined' && INTRO_STYLES[styleId]) || {};
 
-  // firstRaisePose 도달 이후(2.75~4.00s)는 스타일과 무관하게 항상 동일 —
+  // firstRaisePose 도달 이후(3.30~4.00s)는 스타일과 무관하게 항상 동일 —
   // 어떤 스타일을 골라도 실제 첫 타격 시작 위치·타이밍은 그대로 유지된다.
+  // 진입 동작(사용자 지정 안무)이 거의 정지 상태였던 tail 구간을 잡아먹고
+  // 0~3.3s로 늘어난 만큼, tail은 1.25s(2.75~4.00)→0.70s(3.30~4.00)로
+  // 압축 — 첫 타격 시점(4.00s) 자체는 그대로 유지한다.
   const tail = [
-    { time: 2.75, angles: firstRaisePose                     },  // 첫 드럼 방향으로 회전 + 코킹
-    { time: 3.00, angles: firstRaisePose                     },  // 홀드
-    { time: 3.30, angles: _breathePose(firstRaisePose, +0.04)},  // 숨 들이쉬기
-    { time: 3.70, angles: firstRaisePose                     },  // 숨 내쉬기 → 정지
+    { time: 3.30, angles: firstRaisePose                     },  // 첫 드럼 방향으로 회전 + 코킹
+    { time: 3.45, angles: firstRaisePose                     },  // 홀드
+    { time: 3.60, angles: _breathePose(firstRaisePose, +0.04)},  // 숨 들이쉬기
+    { time: 3.80, angles: firstRaisePose                     },  // 숨 내쉬기 → 정지
     { time: 4.00, angles: firstStrikePose                    },  // ▶ 손목 스냅으로 내려치기
   ];
 
@@ -2029,8 +2032,8 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
     const poseB = _arrToAngles(style.poseB);
     return [
       { time: 0.00, angles: nu    },
-      { time: 1.00, angles: poseA },  // J1 후인 + J7 들어올림
-      { time: 1.65, angles: poseB },  // J1만 복귀
+      { time: 1.20, angles: poseA },  // J1 후인 + J7 들어올림
+      { time: 1.98, angles: poseB },  // J1만 복귀
       ...tail,
     ];
   }
@@ -2056,12 +2059,12 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
     const rightRaise  = { ...rightReady, R7: style.raiseR7 };
     const rightStrike = { ...rightReady, R7: style.strikeR7 };
 
-    // 타격 횟수 4회 — 진입(0~1.20s) 이후 남은 시간(1.20~2.75s)에 재코킹
-    // (0.25s)+스냅(0.10s) 사이클을 4번 반복해서 채운다. tail 시작(2.75s)
-    // 직전에 작게 여유(0.15s)를 남겨 firstRaisePose로의 전환이 급작스럽지
+    // 타격 횟수 4회 — 진입(0~1.44s) 이후 남은 시간(1.44~3.12s)에 재코킹
+    // (0.30s)+스냅(0.12s) 사이클을 4번 반복해서 채운다. tail 시작(3.30s)
+    // 직전에 작게 여유(0.18s)를 남겨 firstRaisePose로의 전환이 급작스럽지
     // 않게 한다.
     const STRIKE_COUNT = 4;
-    const READY_TIME = 1.20, RAISE_DUR = 0.25, STRIKE_DUR = 0.10;
+    const READY_TIME = 1.44, RAISE_DUR = 0.30, STRIKE_DUR = 0.12;
     const strikeFrames = [];
     let t = READY_TIME;
     for (let i = 0; i < STRIKE_COUNT; i++) {
@@ -2073,9 +2076,9 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
 
     return [
       { time: 0.00,        angles: nu          },
-      { time: 0.40,        angles: poseA       },  // 후인 + 손목 들기(공통 진입)
-      { time: 0.70,        angles: poseB       },  // J1 복귀
-      { time: 1.00,        angles: leftInCross },  // 왼팔 먼저 교차 자세로 진입 + 고정(이후 계속 고정)
+      { time: 0.48,        angles: poseA       },  // 후인 + 손목 들기(공통 진입)
+      { time: 0.84,        angles: poseB       },  // J1 복귀
+      { time: 1.20,        angles: leftInCross },  // 왼팔 먼저 교차 자세로 진입 + 고정(이후 계속 고정)
       { time: READY_TIME,  angles: rightReady  },  // 오른팔이 앞을 가로질러 들어가 준비 자세(아직 타격 아님)
       ...strikeFrames,
       ...tail,
@@ -2086,7 +2089,7 @@ function createDrumIntroTimeline(firstRaisePose, firstStrikePose, preset, styleI
   const as = _arrToAngles(preset.armSpreadPose ?? preset.rearClearPose); // 하위 호환
   return [
     { time: 0.00, angles: nu },
-    { time: 1.30, angles: as },  // 팔 양옆 벌림
+    { time: 1.56, angles: as },  // 팔 양옆 벌림
     ...tail,
   ];
 }
