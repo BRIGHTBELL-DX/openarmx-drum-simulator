@@ -855,6 +855,14 @@ function buildKeyframes() {
   const preLiftR = Object.fromEntries(
     Object.entries(READY_R).map(([k, v]) => [k, k.endsWith('4') ? clamp(v + 0.58, 0.10, 1.70) : v])
   );
+  const preLift = { L: preLiftL, R: preLiftR };
+
+  // 첫 타격 전 대기 시간이 길면(1초 이상) 대기 자세를 계속 유지하다가
+  // 타격 약 1초 전부터만 드럼 쪽으로 움직이기 시작 — 그 전엔 preLift로
+  // 홀드하는 키프레임을 하나 추가한다(안 넣으면 대기 시작 시점부터 raise
+  // 시점까지 단 2개 점 사이를 계속 서서히 움직이는 것처럼 보간되어, 빈
+  // 시간 내내 팔이 조금씩 계속 움직이는 것처럼 보이는 문제가 있었음).
+  const APPROACH_DUR = 1.0;
 
   // 왼팔·오른팔 키프레임 트랙 완전 분리
   const L_poseMap = new Map();
@@ -902,6 +910,10 @@ function buildKeyframes() {
       const includeRebound = !next;
 
       if (!hasPrev) {
+        const holdT = parseFloat(Math.max(0, raiseT - APPROACH_DUR).toFixed(3));
+        if (holdT > 0.001) {
+          addPose(poseMap, holdT, preLift[arm], sideKeys);
+        }
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise', vel), sideKeys);
       }
       addPose(poseMap, t, computeStrikePose(drum, 'strike', vel), sideKeys, true);
