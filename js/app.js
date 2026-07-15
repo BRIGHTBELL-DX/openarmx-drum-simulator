@@ -911,15 +911,16 @@ function buildKeyframes() {
     if (isStrike) cur._isStrike = true;
   }
 
-  // 첫 타격까지 대기 시간이 긴 팔이 완전히 멈춰 있는 것처럼 보이지 않도록,
-  // 0~holdT 구간에 숨쉬듯 완만하게 오르내리는 키프레임을 채워 넣는다
-  // (BREATH_AMP·BREATH_HALF은 인트로 tail의 숨쉬기 효과보다 느리고 큰 폭 —
-  // 이 구간이 훨씬 길기 때문). holdT 근처(약 0.7주기)는 다음 접근(raise) 전
-  // 자연스러운 정지를 위해 채우지 않는다.
+  // 대기 시간이 긴 구간(첫 타격 전·타격 사이 모두)에서 팔이 완전히 멈춰
+  // 있는 것처럼 보이지 않도록, startT~endT 구간에 숨쉬듯 완만하게
+  // 오르내리는 키프레임을 채워 넣는다(BREATH_AMP·BREATH_HALF은 인트로
+  // tail의 숨쉬기 효과보다 느리고 큰 폭 — 이 구간이 훨씬 길기 때문).
+  // endT 근처(약 0.7주기)는 다음 접근(raise) 전 자연스러운 정지를 위해
+  // 채우지 않는다.
   const BREATH_AMP  = 0.05;
   const BREATH_HALF = 0.9;
-  function addBreathingHold(poseMap, basePose, endT, sideKeys) {
-    let t = BREATH_HALF, up = true;
+  function addBreathingHold(poseMap, basePose, startT, endT, sideKeys) {
+    let t = parseFloat((startT + BREATH_HALF).toFixed(3)), up = true;
     while (t < endT - BREATH_HALF * 0.7) {
       addPose(poseMap, t, _breathePose(basePose, up ? BREATH_AMP : -BREATH_AMP), sideKeys);
       up = !up;
@@ -948,7 +949,7 @@ function buildKeyframes() {
       if (!hasPrev) {
         const holdT = parseFloat(Math.max(0, raiseT - APPROACH_DUR).toFixed(3));
         if (holdT > 0.001) {
-          addBreathingHold(poseMap, preLift[arm], holdT, sideKeys);
+          addBreathingHold(poseMap, preLift[arm], 0, holdT, sideKeys);
           addPose(poseMap, holdT, preLift[arm], sideKeys);
         }
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise', vel), sideKeys);
@@ -962,7 +963,16 @@ function buildKeyframes() {
       // raise(A)를 기준으로 삼아야 히햇 등 심벌을 스치지 않고 충분히 들어올린 뒤 넘어감
       // (strike_A 기준 시 via-point Z가 너무 낮아 심벌 표면을 비비는 경로가 생김)
       if (next) {
-        const peakT = parseFloat(((t + next.t) / 2).toFixed(3));
+        // 타격 직후 회수(peak까지 올라가는 구간)를 항상 두 타격의 정중앙
+        // 시점에 맞추면, 간격이 넓을 때(느긋한 타격) 회수 자체가 통째로
+        // 느려져 "붕 뜬" 느낌이 난다 — 원래는 간격이 좁을 때(빠른 연타)만
+        // 자연스러웠던 속도. preDur(raise 구간과 동일한 자연스러운 회수
+        // 속도)를 상한으로 써서, 간격이 넉넉하면 회수는 항상 비슷한
+        // 속도로 빠르게 끝내고 나머지 시간은 peak 자세로 대기(숨쉬기)한다.
+        // 간격이 좁으면(빠르게 다음 타격까지 가야 함) 기존처럼 정중앙에서
+        // 만나는 것으로 자동 축소된다.
+        const gap   = next.t - t;
+        const peakT = parseFloat((t + Math.min(preDur, gap / 2)).toFixed(3));
         const posA  = computeStrikePose(drum,      'raise', vel);
         const posB  = computeStrikePose(next.drum, 'raise', next.vel ?? 'medium');
         const peak  = {};
@@ -1009,6 +1019,13 @@ function buildKeyframes() {
         const availGap  = next.t - peakT;
         const raiseLead = Math.min(preDur, availGap * 0.7);
         const raiseBT   = parseFloat((next.t - raiseLead).toFixed(3));
+
+        // peak 도달 후 다음 접근(raiseBT) 전까지 여유가 많이 남으면(간격이
+        // 넓은 타격), 그 사이는 peak 자세로 숨쉬듯 대기 — 안 넣으면 peak와
+        // raiseB 두 점만으로 보간되어 그 긴 구간 내내 서서히 움직이는
+        // 것처럼 보인다(첫 타격 대기 때와 동일한 문제).
+        if (raiseBT > peakT) addBreathingHold(poseMap, peak, peakT, raiseBT, sideKeys);
+
         if (raiseLead > 0.03 && raiseBT > peakT) {
           addPose(poseMap, raiseBT, posB, sideKeys);
         }
