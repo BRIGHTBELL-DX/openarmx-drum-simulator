@@ -818,6 +818,19 @@ function _getReadyPoses() {
   };
 }
 
+/** frontReadyPose + J4(팔꿈치) +0.58(최대 1.70) — 타격 대기 중 팔이 즉시
+ *  내려오지 않도록 살짝 들어 올린 자세. buildKeyframes()의 각 팔 시작
+ *  포즈와 정확히 같은 값이어야, 인트로 끝(firstRaisePose 폴백)에서 본편
+ *  트랙으로 넘어갈 때 팔이 툭 튀지 않는다(둘이 다르면 J4가 순간적으로
+ *  어긋나며 스냅되는 문제가 있었음). */
+function _getPreLiftPoses() {
+  const { L: READY_L, R: READY_R } = _getReadyPoses();
+  const lift = (ready) => Object.fromEntries(
+    Object.entries(ready).map(([k, v]) => [k, k.endsWith('4') ? clamp(v + 0.58, 0.10, 1.70) : v])
+  );
+  return { L: lift(READY_L), R: lift(READY_R) };
+}
+
 const _SIDE_KEYS = { L: ['L1','L2','L3','L4','L5','L6','L7'], R: ['R1','R2','R3','R4','R5','R6','R7'] };
 function _sidePick(pose, side) {
   const out = {};
@@ -849,12 +862,7 @@ function buildKeyframes() {
 
   // preLift: READY + J4 +0.58 (최대 1.70) — 인트로 preLift와 동일 높이
   // → 인트로 t=4.00 이후 이벤트가 없는 팔이 즉시 내려오지 않도록
-  const preLiftL = Object.fromEntries(
-    Object.entries(READY_L).map(([k, v]) => [k, k.endsWith('4') ? clamp(v + 0.58, 0.10, 1.70) : v])
-  );
-  const preLiftR = Object.fromEntries(
-    Object.entries(READY_R).map(([k, v]) => [k, k.endsWith('4') ? clamp(v + 0.58, 0.10, 1.70) : v])
-  );
+  const { L: preLiftL, R: preLiftR } = _getPreLiftPoses();
   const preLift = { L: preLiftL, R: preLiftR };
 
   // 첫 타격 전 대기 시간이 길면(1초 이상) 대기 자세를 계속 유지하다가
@@ -891,6 +899,22 @@ function buildKeyframes() {
     if (isStrike) cur._isStrike = true;
   }
 
+  // 첫 타격까지 대기 시간이 긴 팔이 완전히 멈춰 있는 것처럼 보이지 않도록,
+  // 0~holdT 구간에 숨쉬듯 완만하게 오르내리는 키프레임을 채워 넣는다
+  // (BREATH_AMP·BREATH_HALF은 인트로 tail의 숨쉬기 효과보다 느리고 큰 폭 —
+  // 이 구간이 훨씬 길기 때문). holdT 근처(약 0.7주기)는 다음 접근(raise) 전
+  // 자연스러운 정지를 위해 채우지 않는다.
+  const BREATH_AMP  = 0.05;
+  const BREATH_HALF = 0.9;
+  function addBreathingHold(poseMap, basePose, endT, sideKeys) {
+    let t = BREATH_HALF, up = true;
+    while (t < endT - BREATH_HALF * 0.7) {
+      addPose(poseMap, t, _breathePose(basePose, up ? BREATH_AMP : -BREATH_AMP), sideKeys);
+      up = !up;
+      t = parseFloat((t + BREATH_HALF).toFixed(3));
+    }
+  }
+
   ['L', 'R'].forEach(arm => {
     const poseMap  = arm === 'L' ? L_poseMap : R_poseMap;
     const sideKeys = arm === 'L' ? L_KEYS    : R_KEYS;
@@ -912,6 +936,7 @@ function buildKeyframes() {
       if (!hasPrev) {
         const holdT = parseFloat(Math.max(0, raiseT - APPROACH_DUR).toFixed(3));
         if (holdT > 0.001) {
+          addBreathingHold(poseMap, preLift[arm], holdT, sideKeys);
           addPose(poseMap, holdT, preLift[arm], sideKeys);
         }
         addPose(poseMap, raiseT, computeStrikePose(drum, 'raise', vel), sideKeys);
@@ -2184,8 +2209,11 @@ function buildTimelineWithIntroOutro(options = {}) {
     // frontReadyPose로 대기 — 늦게 들어오는 팔까지 인트로 끝(4.00s)에
     // "이미 친 것처럼" 강제하면 타임라인에 없는 타격이 나오고, 그 직후
     // 본편 트랙과 이어지며 불연속 점프+장시간 스플라인 드리프트까지
-    // 겹치는 문제가 있었음 — 곡 전체 최초 박과 같은 팔만 안무에 반영한다.)
-    const { L: READY_L, R: READY_R } = _getReadyPoses();
+    // 겹치는 문제가 있었음 — 곡 전체 최초 박과 같은 팔만 안무에 반영한다.
+    // 대기 폴백은 frontReadyPose가 아니라 preLift여야 함 — buildKeyframes()의
+    // 각 팔 시작 포즈(J4를 살짝 든 preLift)와 정확히 같은 값을 써야, 인트로
+    // 끝에서 본편 트랙으로 넘어갈 때 J4가 순간적으로 어긋나며 튀지 않는다.)
+    const { L: READY_L, R: READY_R } = _getPreLiftPoses();
     let hitL = _firstArmHit('L');
     let hitR = _firstArmHit('R');
     const firstBeats = [hitL, hitR].filter(Boolean).map(h => h.beat);
